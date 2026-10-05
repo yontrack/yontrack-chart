@@ -13,7 +13,7 @@ configuration:
       autoVersioning:
         configurations:
           - sourceProject: yontrack
-            sourceBranch: main
+            sourceBranch: release-5.5
             sourcePromotion: RELEASE
             targetPath: charts/yontrack/Chart.yaml
             targetRegex: '^appVersion: "(.*)"$'
