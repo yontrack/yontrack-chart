@@ -815,6 +815,59 @@ elasticsearch:
   # -- Key of the password in the existing secret
   existingSecretPasswordKey: password
 
+# Audit trail (Yontrack 6)
+auditTrail:
+  # Storage of the evidence, in an S3-compatible bucket.
+  # The storage is configured when an endpoint is set. Leave these values empty when using the bundled MinIO.
+  storage:
+    # -- S3 endpoint, like https://s3.<region>.amazonaws.com or https://<region>.digitaloceanspaces.com
+    endpoint: ""
+    # -- Name of the bucket, which must exist
+    bucket: ""
+    # -- Region of the bucket
+    region: us-east-1
+    # -- Path-style access to the bucket (true for MinIO)
+    pathStyle: false
+    # -- Maximum size of an evidence file, like 50MB. When empty, Yontrack's default applies (50MB).
+    maxSize: ""
+    # -- Name of an existing secret holding the access & secret keys
+    existingSecret: ""
+    # -- Key of the access key in the secret
+    accessKeyKey: accessKey
+    # -- Key of the secret key in the secret
+    secretKeyKey: secretKey
+  # Bundled MinIO-compatible storage (Silo, the community fork of MinIO), with its bucket created at start.
+  # When enabled, Yontrack uses it: auditTrail.storage.endpoint, bucket & existingSecret must then be left empty.
+  minio:
+    # -- Deploying a MinIO-compatible storage for the evidence
+    enabled: false
+    image:
+      # -- Image of the MinIO-compatible server (Silo, the community fork of MinIO, which no longer publishes images)
+      repository: pgsty/silo
+      # -- Version of the image
+      tag: "RELEASE.2026-09-16T00-00-00Z"
+      # -- Pull policy
+      pullPolicy: IfNotPresent
+    # -- Name of the bucket to create
+    bucket: yontrack-audit-trail
+    # -- Name of an existing secret holding the root user & password. When empty, they are generated.
+    existingSecret: ""
+    # -- Key of the root user in the secret
+    rootUserKey: rootUser
+    # -- Key of the root password in the secret
+    rootPasswordKey: rootPassword
+    persistence:
+      # -- Size of the volume
+      size: 10Gi
+      # -- Access mode of the volume
+      accessMode: ReadWriteOnce
+      # -- Storage class of the volume ("-" for none, empty for the default one)
+      storageClass: ""
+      # -- Annotations of the PVC
+      annotations: {}
+    # -- Resources of the MinIO container
+    resources: {}
+
 # -- In case you want to specify different resources for emptyDir than {}
 emptyDir: { }
   # Example of resouces that might be used:

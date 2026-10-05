@@ -26,6 +26,9 @@ This Helm chart is compatible with Helm 3 and allows the installation of Yontrac
     * [Okta](#okta)
 * [Using a managed database](#using-a-managed-database)
 * [Exporting metrics to Elasticsearch](#exporting-metrics-to-elasticsearch)
+* [Audit trail evidence storage](#audit-trail-evidence-storage)
+  * [External S3-compatible storage](#external-s3-compatible-storage)
+  * [Bundled MinIO-compatible storage](#bundled-minio-compatible-storage)
 * [Configuration as code (CasC)](#configuration-as-code-casc)
   * [Secrets mappings](#secrets-mappings)
     * [Using environment variables](#using-environment-variables)
@@ -538,6 +541,76 @@ elasticsearch:
 
 When the export is enabled, the Elasticsearch health indicator is part of the health of Yontrack.
 
+# Audit trail evidence storage
+
+The audit trail of Yontrack 6 stores its evidence files in an S3-compatible bucket.
+Without any storage, the audit trail still works, but evidence is not available: Yontrack
+reports a `DEGRADED` (not `DOWN`) health and shows a warning.
+
+The storage is configured by the `auditTrail.storage` values, mapped to the
+`ontrack.extension.audit-trail.storage.*` properties of Yontrack. The credentials are only read
+from an existing secret.
+
+## External S3-compatible storage
+
+Create a secret holding the access & secret keys:
+
+```bash
+kubectl create secret generic yontrack-evidence \
+  --from-literal=accessKey=<access key> \
+  --from-literal=secretKey=<secret key>
+```
+
+and point the storage to the bucket, which must exist:
+
+```yaml
+auditTrail:
+  storage:
+    endpoint: https://fra1.digitaloceanspaces.com
+    bucket: yontrack-evidence
+    region: fra1
+    # Optional, defaults to 50MB
+    maxSize: 50MB
+    existingSecret: yontrack-evidence
+    # Keys in the secret (these are the defaults)
+    accessKeyKey: accessKey
+    secretKeyKey: secretKey
+```
+
+| Provider            | `endpoint`                                | `region`    | `pathStyle` |
+|---------------------|-------------------------------------------|-------------|-------------|
+| AWS S3              | `https://s3.<region>.amazonaws.com`       | `<region>`  | `false`     |
+| DigitalOcean Spaces | `https://<region>.digitaloceanspaces.com` | `<region>`  | `false`     |
+| MinIO               | `http://<host>:9000`                      | any         | `true`      |
+
+Keep the bucket private, and back it up yourself: it is not part of the database backups.
+See the [audit trail documentation](https://github.com/yontrack/yontrack/blob/main/ontrack-docs/docs/content/audit-trail/index.md)
+of Yontrack.
+
+## Bundled MinIO-compatible storage
+
+For testing or small installations, the chart can deploy its own storage, off by default:
+
+```yaml
+auditTrail:
+  minio:
+    enabled: true
+    # Optional, these are the defaults
+    bucket: yontrack-audit-trail
+    persistence:
+      size: 10Gi
+```
+
+It deploys [Silo](https://github.com/pgsty/silo), the community fork of MinIO (MinIO Inc. no longer
+publishes images), as a single node with its own volume, and creates the bucket when it starts.
+Yontrack then uses it: endpoint, bucket, path-style access and credentials. The bundled MinIO
+cannot be combined with an external storage: `auditTrail.storage.endpoint`, `bucket` and
+`existingSecret` must be left empty (`region` and `maxSize` still apply).
+
+The root credentials are generated in a secret, unless `auditTrail.minio.existingSecret` names an
+existing one, holding them under the `auditTrail.minio.rootUserKey` & `rootPasswordKey` keys
+(`rootUser` & `rootPassword` by default).
+
 # Configuration as code (CasC)
 
 Casc is enabled by default in Yontrack starting from version 5.
@@ -766,6 +839,7 @@ kubectl delete pvc data-<release>-elasticsearch-master-0
 
 * Support for Yontrack 6
 * Elasticsearch is no longer bundled, only used for the optional [metrics export](#exporting-metrics-to-elasticsearch)
+* [Audit trail evidence storage](#audit-trail-evidence-storage), with an optional bundled MinIO-compatible storage
 * See [Upgrading to 6.x](#upgrading-to-6x)
 
 ## 1.0

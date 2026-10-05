@@ -275,6 +275,99 @@ render_fails_with "elasticsearch.uris is required when elasticsearch.metrics.ena
 test_case "Elasticsearch is no longer bundled"
 render_fails_with "elasticsearch.enabled is no longer supported" --set elasticsearch.enabled=true
 
+echo "Audit trail storage"
+
+STORAGE_ENV='AUDITTRAIL_STORAGE'
+MINIO=ontrack-yontrack-chart-minio
+
+# Names of the resources of the bundled MinIO, as Kind/name
+minio_resources() {
+    yq e 'select(.metadata.name | test("-minio")) | .kind + "/" + .metadata.name' "$TMP/out.yaml" | grep -v '^---$' | sort | tr '\n' ' '
+}
+
+test_case "No audit trail storage by default"
+if render_ok; then
+    assert_equals "Storage env" "$(ontrack_env "$STORAGE_ENV")" ""
+    assert_equals "MinIO resources" "$(minio_resources)" ""
+fi
+
+test_case "External audit trail storage"
+if render_ok \
+    --set auditTrail.storage.endpoint=https://fra1.digitaloceanspaces.com \
+    --set auditTrail.storage.bucket=evidence \
+    --set auditTrail.storage.region=fra1 \
+    --set auditTrail.storage.maxSize=100MB \
+    --set auditTrail.storage.existingSecret=spaces; then
+    assert_equals "Storage env" "$(ontrack_env "$STORAGE_ENV" | sort | tr '\n' ' ')" \
+        "ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_ACCESSKEY=spaces:accessKey ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_BUCKET=evidence ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_ENDPOINT=https://fra1.digitaloceanspaces.com ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_MAXSIZE=100MB ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_PATHSTYLE=false ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_REGION=fra1 ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_SECRETKEY=spaces:secretKey "
+    assert_equals "MinIO resources" "$(minio_resources)" ""
+fi
+
+test_case "External audit trail storage with custom secret keys and path style"
+if render_ok \
+    --set auditTrail.storage.endpoint=http://s3.local:9000 \
+    --set auditTrail.storage.bucket=evidence \
+    --set auditTrail.storage.pathStyle=true \
+    --set auditTrail.storage.existingSecret=s3 \
+    --set auditTrail.storage.accessKeyKey=AWS_ACCESS_KEY_ID \
+    --set auditTrail.storage.secretKeyKey=AWS_SECRET_ACCESS_KEY; then
+    assert_equals "Storage env" "$(ontrack_env "$STORAGE_ENV" | sort | tr '\n' ' ')" \
+        "ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_ACCESSKEY=s3:AWS_ACCESS_KEY_ID ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_BUCKET=evidence ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_ENDPOINT=http://s3.local:9000 ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_PATHSTYLE=true ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_REGION=us-east-1 ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_SECRETKEY=s3:AWS_SECRET_ACCESS_KEY "
+fi
+
+test_case "External audit trail storage needs a bucket and a secret"
+render_fails_with "auditTrail.storage.bucket is required" \
+    --set auditTrail.storage.endpoint=http://s3.local:9000 --set auditTrail.storage.existingSecret=s3
+render_fails_with "auditTrail.storage.existingSecret is required" \
+    --set auditTrail.storage.endpoint=http://s3.local:9000 --set auditTrail.storage.bucket=evidence
+
+# Value of an env variable of the bundled MinIO container, or its secret reference
+minio_env() {
+    manifests "select(.kind == \"StatefulSet\" and .metadata.name == \"$MINIO\") | .spec.template.spec.containers[0].env[] | select(.name == \"$1\") | .value // (.valueFrom.secretKeyRef.name + \":\" + .valueFrom.secretKeyRef.key)"
+}
+
+test_case "Bundled MinIO for the audit trail storage"
+if render_ok --set auditTrail.minio.enabled=true; then
+    assert_equals "MinIO resources" "$(minio_resources)" \
+        "ConfigMap/$MINIO PersistentVolumeClaim/$MINIO Secret/$MINIO Service/$MINIO StatefulSet/$MINIO "
+    assert_equals "Storage env" "$(ontrack_env "$STORAGE_ENV" | sort | tr '\n' ' ')" \
+        "ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_ACCESSKEY=$MINIO:rootUser ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_BUCKET=yontrack-audit-trail ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_ENDPOINT=http://$MINIO:9000 ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_PATHSTYLE=true ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_REGION=us-east-1 ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_SECRETKEY=$MINIO:rootPassword "
+    assert_equals "MinIO credentials" \
+        "$(manifests "select(.kind == \"Secret\" and .metadata.name == \"$MINIO\") | .data | keys | sort | join(\",\")")" "rootPassword,rootUser"
+    assert_equals "MinIO root user" "$(minio_env MINIO_ROOT_USER)" "$MINIO:rootUser"
+    assert_equals "MinIO root password" "$(minio_env MINIO_ROOT_PASSWORD)" "$MINIO:rootPassword"
+    assert_equals "MinIO bucket" "$(minio_env YONTRACK_MINIO_BUCKET)" "yontrack-audit-trail"
+    assert_equals "MinIO volume" \
+        "$(manifests "select(.kind == \"StatefulSet\" and .metadata.name == \"$MINIO\") | .spec.template.spec.volumes[] | select(.persistentVolumeClaim) | .persistentVolumeClaim.claimName")" "$MINIO"
+fi
+
+test_case "Bundled MinIO with an existing secret"
+if render_ok --set auditTrail.minio.enabled=true --set auditTrail.minio.existingSecret=minio-root \
+    --set auditTrail.minio.rootUserKey=user --set auditTrail.minio.rootPasswordKey=password; then
+    assert_equals "MinIO resources" "$(minio_resources)" \
+        "ConfigMap/$MINIO PersistentVolumeClaim/$MINIO Service/$MINIO StatefulSet/$MINIO "
+    assert_equals "Storage credentials" "$(ontrack_env "${STORAGE_ENV}_(ACCESS|SECRET)KEY" | sort | tr '\n' ' ')" \
+        "ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_ACCESSKEY=minio-root:user ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_SECRETKEY=minio-root:password "
+    assert_equals "MinIO root user" "$(minio_env MINIO_ROOT_USER)" "minio-root:user"
+    assert_equals "MinIO root password" "$(minio_env MINIO_ROOT_PASSWORD)" "minio-root:password"
+fi
+
+test_case "Bundled MinIO with its own bucket and a maximum size"
+if render_ok --set auditTrail.minio.enabled=true --set auditTrail.minio.bucket=other --set auditTrail.storage.maxSize=10MB; then
+    assert_equals "Storage env" "$(ontrack_env "${STORAGE_ENV}_(BUCKET|MAXSIZE)" | sort | tr '\n' ' ')" \
+        "ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_BUCKET=other ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_MAXSIZE=10MB "
+    assert_equals "MinIO bucket" "$(minio_env YONTRACK_MINIO_BUCKET)" "other"
+fi
+
+test_case "Bundled MinIO cannot be mixed with an external storage"
+render_fails_with "auditTrail.minio.enabled cannot be combined with auditTrail.storage.endpoint" \
+    --set auditTrail.minio.enabled=true --set auditTrail.storage.endpoint=https://s3.example \
+    --set auditTrail.storage.bucket=evidence --set auditTrail.storage.existingSecret=s3
+render_fails_with "auditTrail.storage.bucket cannot be set with the bundled MinIO" \
+    --set auditTrail.minio.enabled=true --set auditTrail.storage.bucket=evidence
+render_fails_with "auditTrail.storage.existingSecret cannot be set with the bundled MinIO" \
+    --set auditTrail.minio.enabled=true --set auditTrail.storage.existingSecret=s3
+
 if [ $FAILED -eq 1 ]; then
     echo "Some template tests failed."
     exit 1
