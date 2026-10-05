@@ -232,9 +232,10 @@ A Helm chart for Kubernetes
 | emptyDir | object | `{}` | In case you want to specify different resources for emptyDir than {} |
 | extraContainers | list | `[]` | Array of extra containers to run alongside the Yontrack container  Example: - name: myapp-container   image: busybox   command: ['sh', '-c', 'echo Hello && sleep 3600']  |
 | fullnameOverride | string | `""` | If defined, uses this name for the resource names instead of the using the chart name |
-| global | object | `{"compatibility":{"openshift":{"adaptSecurityContext":"auto"}}}` | Global configuration for all sub-charts |
+| global | object | `{"compatibility":{"openshift":{"adaptSecurityContext":"auto"}},"security":{"allowInsecureImages":true}}` | Global configuration for all sub-charts |
 | global.compatibility | object | `{"openshift":{"adaptSecurityContext":"auto"}}` | Configuration for OpenShift |
 | global.compatibility.openshift.adaptSecurityContext | string | `"auto"` | Whether to adapt the security context for OpenShift |
+| global.security.allowInsecureImages | bool | `true` | Skips the image verification of the Bitnami sub-charts, which all deliberately point to the `bitnamilegacy/*` images. Without it, the RabbitMQ sub-chart refuses to render when it is the only Bitnami sub-chart (external Postgres). |
 | image.pullPolicy | string | `"IfNotPresent"` | Pull policy |
 | image.repository | string | `"yontrack/yontrack"` | Image to use for Yontrack (backend) |
 | image.tag | string | `""` | Overrides the image tag whose default is the chart appVersion. |
