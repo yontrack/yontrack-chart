@@ -129,6 +129,35 @@ spec:
             {{- end }}
             {{- end }}
             ########################################
+            # Audit trail storage
+            ########################################
+            {{- $storage := include "ontrack.auditTrail.storage" . | fromJson }}
+            {{- if $storage.endpoint }}
+            - name: ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_ENDPOINT
+              value: {{ $storage.endpoint | quote }}
+            - name: ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_BUCKET
+              value: {{ required "auditTrail.storage.bucket is required when auditTrail.storage.endpoint is set" $storage.bucket | quote }}
+            - name: ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_REGION
+              value: {{ $storage.region | quote }}
+            - name: ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_PATHSTYLE
+              value: {{ $storage.pathStyle | quote }}
+            {{- with $storage.maxSize }}
+            - name: ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_MAXSIZE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- $secret := required "auditTrail.storage.existingSecret is required when auditTrail.storage.endpoint is set: the credentials are only read from a secret" $storage.secret }}
+            - name: ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_ACCESSKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret | quote }}
+                  key: {{ $storage.accessKeyKey | quote }}
+            - name: ONTRACK_EXTENSION_AUDITTRAIL_STORAGE_SECRETKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret | quote }}
+                  key: {{ $storage.secretKeyKey | quote }}
+            {{- end }}
+            ########################################
             # RabbitMQ configuration
             ########################################
             - name: SPRING_RABBITMQ_HOST

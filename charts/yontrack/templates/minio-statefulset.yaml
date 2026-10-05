@@ -1,0 +1,106 @@
+{{- if .Values.auditTrail.minio.enabled }}
+{{- $minio := .Values.auditTrail.minio }}
+{{- $storage := include "ontrack.auditTrail.storage" . | fromJson }}
+{{- $secret := include "ontrack.minio.secretName" . }}
+{{- $openshift := and .Values.openshift.enabled (or (eq .Values.global.compatibility.openshift.adaptSecurityContext "force") (eq .Values.global.compatibility.openshift.adaptSecurityContext "auto")) }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "ontrack.minio.fullname" . }}
+  labels:
+    {{- include "ontrack.labels.minio" . | nindent 4 }}
+spec:
+  serviceName: {{ include "ontrack.minio.fullname" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ontrack.selectorLabels.minio" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/start: {{ .Files.Get "files/minio/start.sh" | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "ontrack.selectorLabels.minio" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "ontrack.serviceAccountName" . }}
+      {{- if not $openshift }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: minio
+          {{- if not $openshift }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- end }}
+          image: {{ $minio.image.repository }}:{{ $minio.image.tag }}
+          imagePullPolicy: {{ $minio.image.pullPolicy }}
+          command: [ "/bin/sh", "/yontrack/start.sh" ]
+          env:
+            - name: HOME
+              value: /tmp
+            - name: YONTRACK_MINIO_BUCKET
+              value: {{ $storage.bucket | quote }}
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret | quote }}
+                  key: {{ .Values.auditTrail.minio.rootUserKey | quote }}
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret | quote }}
+                  key: {{ .Values.auditTrail.minio.rootPasswordKey | quote }}
+          ports:
+            - name: s3
+              containerPort: 9000
+              protocol: TCP
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: start
+              mountPath: /yontrack
+              readOnly: true
+          {{- with $minio.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          # Ready once the bucket has been created
+          readinessProbe:
+            exec:
+              command: [ "test", "-f", "/tmp/yontrack-bucket-ready" ]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: s3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "ontrack.minio.fullname" . }}
+        - name: start
+          configMap:
+            name: {{ include "ontrack.minio.fullname" . }}
+{{- end }}

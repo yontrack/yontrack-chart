@@ -4,7 +4,8 @@ set -e
 echo "Checking Docker images referenced in the Helm chart..."
 
 # Extract images from Helm template
-IMAGES=$(helm template charts/yontrack | grep "image:" | sed 's/.*image: //;s/"//g;s/^ //g' | sort | uniq)
+# Optional components are enabled, so that their images are checked too
+IMAGES=$(helm template charts/yontrack --set auditTrail.minio.enabled=true | grep "image:" | sed 's/.*image: //;s/"//g;s/^ //g' | sort | uniq)
 
 FAILED=0
 

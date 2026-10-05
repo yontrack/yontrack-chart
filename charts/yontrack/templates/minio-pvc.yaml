@@ -1,0 +1,26 @@
+{{- if .Values.auditTrail.minio.enabled }}
+{{- $persistence := .Values.auditTrail.minio.persistence }}
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{ include "ontrack.minio.fullname" . }}
+  labels:
+    {{- include "ontrack.labels.minio" . | nindent 4 }}
+  {{- with $persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    - {{ $persistence.accessMode | quote }}
+  resources:
+    requests:
+      storage: {{ $persistence.size | quote }}
+  {{- if $persistence.storageClass }}
+  {{- if eq "-" $persistence.storageClass }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ $persistence.storageClass | quote }}
+  {{- end }}
+  {{- end }}
+{{- end }}

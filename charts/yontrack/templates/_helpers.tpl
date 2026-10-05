@@ -364,3 +364,80 @@ Fails for 5.x values still expecting a bundled cluster.
   {{- fail "elasticsearch.enabled is no longer supported: since 6.0, the chart does not bundle Elasticsearch, which Yontrack only needs for the optional metrics export (elasticsearch.metrics.enabled). See the \"Upgrading to 6.x\" section of the chart README." }}
 {{- end }}
 {{- end }}
+
+{{/*
+Name of the resources of the bundled MinIO
+*/}}
+{{- define "ontrack.minio.fullname" -}}
+{{- printf "%s-minio" (include "ontrack.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Selector labels for the bundled MinIO
+*/}}
+{{- define "ontrack.selectorLabels.minio" -}}
+app.kubernetes.io/name: {{ include "ontrack.name" . }}-minio
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+Common labels for the bundled MinIO
+*/}}
+{{- define "ontrack.labels.minio" -}}
+{{- if .Values.includeVersionLabels }}
+helm.sh/chart: {{ include "ontrack.chart" . }}
+{{- end }}
+{{ include "ontrack.selectorLabels.minio" . }}
+{{- if and .Chart.AppVersion .Values.includeVersionLabels }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+Name of the secret holding the credentials of the bundled MinIO
+*/}}
+{{- define "ontrack.minio.secretName" -}}
+{{- default (include "ontrack.minio.fullname" .) .Values.auditTrail.minio.existingSecret }}
+{{- end }}
+
+{{/*
+Storage of the audit trail evidence, as JSON. Either the bundled MinIO, when enabled, or the
+auditTrail.storage values: both cannot be mixed. The endpoint is empty when no storage is configured.
+*/}}
+{{- define "ontrack.auditTrail.storage" -}}
+{{- $storage := .Values.auditTrail.storage }}
+{{- $minio := .Values.auditTrail.minio }}
+{{- if $minio.enabled }}
+  {{- if $storage.endpoint }}
+    {{- fail "auditTrail.minio.enabled cannot be combined with auditTrail.storage.endpoint: use either the bundled MinIO or an external storage." }}
+  {{- end }}
+  {{- if $storage.bucket }}
+    {{- fail "auditTrail.storage.bucket cannot be set with the bundled MinIO: use auditTrail.minio.bucket." }}
+  {{- end }}
+  {{- if $storage.existingSecret }}
+    {{- fail "auditTrail.storage.existingSecret cannot be set with the bundled MinIO: use auditTrail.minio.existingSecret." }}
+  {{- end }}
+  {{- dict
+    "endpoint" (printf "http://%s:9000" (include "ontrack.minio.fullname" .))
+    "bucket" $minio.bucket
+    "region" $storage.region
+    "pathStyle" true
+    "maxSize" $storage.maxSize
+    "secret" (include "ontrack.minio.secretName" .)
+    "accessKeyKey" $minio.rootUserKey
+    "secretKeyKey" $minio.rootPasswordKey
+    | toJson }}
+{{- else }}
+  {{- dict
+    "endpoint" $storage.endpoint
+    "bucket" $storage.bucket
+    "region" $storage.region
+    "pathStyle" $storage.pathStyle
+    "maxSize" $storage.maxSize
+    "secret" $storage.existingSecret
+    "accessKeyKey" $storage.accessKeyKey
+    "secretKeyKey" $storage.secretKeyKey
+    | toJson }}
+{{- end }}
+{{- end }}

@@ -56,6 +56,7 @@ The root-level `values.yaml` is a local override file (gitignored) used for loca
 | PostgreSQL | sub-chart | Yontrack's main database |
 | RabbitMQ | sub-chart | Messaging |
 | Keycloak | `keycloak-*` | Optional; has its own PostgreSQL StatefulSet |
+| MinIO-compatible storage | `minio-*` | Optional (`auditTrail.minio.enabled`); Silo image, audit trail evidence, bucket created by `files/minio/start.sh` |
 
 ### Authentication Modes
 
