@@ -9,6 +9,7 @@ This Helm chart is compatible with Helm 3 and allows the installation of Yontrac
 * [References](#references)
 * [License key](#license-key)
 * [Ingress configuration](#ingress-configuration)
+  * [Evidence upload size](#evidence-upload-size)
 * [Authentication](#authentication)
   * [Default local Keycloak instance](#default-local-keycloak-instance)
   * [OIDC for Okta](#oidc-for-okta)
@@ -143,6 +144,56 @@ The following URLs are available:
 > The Yontrack management port (8800) serves unauthenticated endpoints and is never routed.
 > The Service exposing it must be of type `ClusterIP`: to expose the Yontrack service with another type,
 > set `management.service.specific: true` so that the management port gets its own `ClusterIP` service.
+
+## Evidence upload size
+
+Ingress controllers limit the size of request bodies: ingress-nginx refuses bodies above 1 MB
+by default (`client_max_body_size`), with a `413` returned before the request reaches Yontrack.
+Evidence files of the [audit trail](#audit-trail-evidence-storage) go up to
+`auditTrail.storage.maxSize` (50MB by default), so their upload paths are rendered in a dedicated
+`<release>-uploads` Ingress, where a larger limit applies to them only - not to `/graphql`, `/hook`
+or the rest of the UI:
+
+| Path                                                                | Service  | Used by                                      |
+|---------------------------------------------------------------------|----------|----------------------------------------------|
+| `/rest/extension/audit-trail/validation-runs/{id}/evidence`         | Yontrack | CI pipelines, the CLI, the KDSL              |
+| `/api/protected/uploads/audit-trail/validation-runs/{id}/evidence` | Next UI  | the Evidence section of a validation run page |
+
+> Ingress paths cannot hold wildcards: the `/rest/extension/audit-trail/validation-runs` and
+> `/api/protected/uploads/audit-trail/validation-runs` prefixes are routed by the upload Ingress.
+
+This Ingress has the same class, host and TLS as the main one, and the same `ingress.annotations`,
+except the cert-manager ones (`cert-manager.io/*`, `kubernetes.io/tls-acme`): the certificate is
+issued for the main Ingress only, and shared through the TLS secret. On top of them, it gets:
+
+* `nginx.ingress.kubernetes.io/proxy-body-size` - `auditTrail.storage.maxSize` plus 1 MB for the
+  multipart envelope (the backend accepts the same), rounded up to the next MB: `51m` by default,
+  `101m` for `maxSize: 100MB`. An upload above `maxSize` then reaches Yontrack, which refuses it
+  with a `413` and the `audit-trail.evidence.too-large` error.
+* `nginx.ingress.kubernetes.io/proxy-request-buffering: "off"` - the uploads are streamed to Yontrack
+  instead of being buffered by nginx.
+
+`ingress.uploads.annotations` are applied last and override any of them. For example, with Traefik
+(no body size limit by default, but a `Buffering` middleware may set one):
+
+```yaml
+ingress:
+  uploads:
+    annotations:
+      traefik.ingress.kubernetes.io/router.middlewares: yontrack-uploads@kubernetescrd
+```
+
+Set the equivalent annotations of other controllers the same way: the nginx ones are ignored by them.
+
+For controllers creating one load balancer per Ingress (like GKE's `gce` class, or the AWS Load
+Balancer Controller without an `alb.ingress.kubernetes.io/group.name` annotation), disable the
+upload Ingress: the main Ingress then serves the upload paths, with its own limits.
+
+```yaml
+ingress:
+  uploads:
+    enabled: false
+```
 
 # Authentication
 
@@ -571,7 +622,7 @@ auditTrail:
     endpoint: https://fra1.digitaloceanspaces.com
     bucket: yontrack-evidence
     region: fra1
-    # Optional, defaults to 50MB
+    # Optional, defaults to 50MB. The Ingress body size of the upload paths follows it.
     maxSize: 50MB
     existingSecret: yontrack-evidence
     # Keys in the secret (these are the defaults)
@@ -842,6 +893,7 @@ kubectl delete pvc data-<release>-elasticsearch-master-0
 * Support for Yontrack 6
 * Elasticsearch is no longer bundled, only used for the optional [metrics export](#exporting-metrics-to-elasticsearch)
 * [Audit trail evidence storage](#audit-trail-evidence-storage), with an optional bundled MinIO-compatible storage
+* [Evidence upload paths](#evidence-upload-size) in their own Ingress, with a body size following `auditTrail.storage.maxSize`
 * See [Upgrading to 6.x](#upgrading-to-6x)
 
 ## 1.0

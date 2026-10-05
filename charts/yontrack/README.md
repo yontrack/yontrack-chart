@@ -246,6 +246,8 @@ A Helm chart for Kubernetes
 | ingress.ingressClassName | string | `""` | Ingress class name |
 | ingress.tls.enabled | bool | `true` | Using TLS for Yontrack |
 | ingress.tls.secretName | string | `""` | Name of the secret containing the TLS certificate If not provided, defaults to <host>-tls |
+| ingress.uploads.annotations | object | `{}` | Annotations of the upload Ingress, overriding the default ones: `nginx.ingress.kubernetes.io/proxy-body-size` (auditTrail.storage.maxSize plus 1 MB) and `nginx.ingress.kubernetes.io/proxy-request-buffering: "off"` |
+| ingress.uploads.enabled | bool | `true` | Rendering the evidence upload paths in a dedicated Ingress (same class, host, TLS & annotations as the main one, except the cert-manager ones). When disabled, the main Ingress serves them with its own body size limit. |
 | initContainers | object | `{"image":{"repository":"busybox","tag":"1.37.0"},"resources":{"limits":{"cpu":"100m","memory":"50Mi"},"requests":{"cpu":"100m","memory":"50Mi"}}}` | General configuration of the init containers |
 | initContainers.image | object | `{"repository":"busybox","tag":"1.37.0"}` | Configuration of the image used for the init containers |
 | initContainers.image.repository | string | `"busybox"` | Image repository (including the registry) |

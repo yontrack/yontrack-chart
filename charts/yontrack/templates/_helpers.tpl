@@ -441,3 +441,31 @@ auditTrail.storage values: both cannot be mixed. The endpoint is empty when no s
     | toJson }}
 {{- end }}
 {{- end }}
+
+{{/*
+Request body size allowed on the upload paths, in the nginx format: the maximum size of an
+evidence file (Yontrack's default when auditTrail.storage.maxSize is empty), plus 1 MB for the
+multipart envelope, like the backend.
+*/}}
+{{- define "ontrack.ingress.uploads.bodySize" -}}
+{{- $mb := 1048576 }}
+{{- $bytes := add (include "ontrack.auditTrail.maxSizeBytes" . | atoi) $mb }}
+{{- printf "%dm" (div (add $bytes (sub $mb 1)) $mb) }}
+{{- end }}
+
+{{/*
+Maximum size of an evidence file, in bytes. auditTrail.storage.maxSize is a Spring data size
+(B, KB, MB, GB or TB, in powers of 1024, bytes when there is no unit), defaulting to Yontrack's 50MB.
+*/}}
+{{- define "ontrack.auditTrail.maxSizeBytes" -}}
+{{- $raw := .Values.auditTrail.storage.maxSize | default "50MB" }}
+{{- if kindIs "float64" $raw }}
+  {{- $raw = int64 $raw }}
+{{- end }}
+{{- $size := $raw | toString | nospace | upper }}
+{{- if not (regexMatch "^[0-9]+(B|KB|MB|GB|TB)?$" $size) }}
+  {{- fail (printf "auditTrail.storage.maxSize must be a size like 50MB (B, KB, MB, GB or TB, bytes when there is no unit), not %v." $raw) }}
+{{- end }}
+{{- $units := dict "" 1 "B" 1 "KB" 1024 "MB" 1048576 "GB" 1073741824 "TB" 1099511627776 }}
+{{- mul (regexFind "^[0-9]+" $size | atoi) (get $units (regexReplaceAll "^[0-9]+" $size "")) }}
+{{- end }}

@@ -94,6 +94,12 @@ ingress:
     # -- Name of the secret containing the TLS certificate
     # If not provided, defaults to <host>-tls
     secretName: ""
+  # Evidence upload paths, in their own Ingress so that a larger request body size applies to them only
+  uploads:
+    # -- Rendering the evidence upload paths in a dedicated Ingress (same class, host, TLS & annotations as the main one, except the cert-manager ones). When disabled, the main Ingress serves them with its own body size limit.
+    enabled: true
+    # -- Annotations of the upload Ingress, overriding the default ones: `nginx.ingress.kubernetes.io/proxy-body-size` (auditTrail.storage.maxSize plus 1 MB) and `nginx.ingress.kubernetes.io/proxy-request-buffering: "off"`
+    annotations: {}
 
 # -- Node selectors for the Yontrack resources
 nodeSelector: {}

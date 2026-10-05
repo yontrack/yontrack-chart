@@ -27,6 +27,11 @@ ingress --> nextUI: 3000 (/)
 ingress --> keycloak: 8080 (/keycloak => /keycloak)
 ingress --> ontrack: 8080 (/graphql, /hook, /rest/extension/audit-trail)
 
+interface "ingress (uploads)" as uploadsIngress
+
+uploadsIngress --> nextUI: 3000 (/api/protected/uploads/audit-trail/validation-runs)
+uploadsIngress --> ontrack: 8080 (/rest/extension/audit-trail/validation-runs)
+
 cloud "elasticsearch <optional, external>" as elasticSearch
 ontrack ..> elasticSearch: metrics export
 
