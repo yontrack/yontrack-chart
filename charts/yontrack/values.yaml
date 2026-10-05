@@ -178,14 +178,36 @@ ontrack:
       cpu: 800m
   # -- Probes configuration
   probes:
-    # -- Startup probe configuration
+    # -- Startup probe configuration. The startup budget is `initialDelaySeconds` + `failureThreshold` × `periodSeconds` (390 s by default): the first start runs all the database migrations.
     startup:
-      # -- Failure threshold at startup
-      failureThreshold: 5
-      # -- Probe interval at startup
-      periodSeconds: 30
       # -- Initial delay at startup
+      initialDelaySeconds: 30
+      # -- Probe interval at startup
+      periodSeconds: 10
+      # -- Timeout of each startup probe
+      timeoutSeconds: 5
+      # -- Failure threshold at startup
+      failureThreshold: 36
+    # -- Liveness probe configuration
+    liveness:
+      # -- Initial delay of the liveness probe
       initialDelaySeconds: 60
+      # -- Liveness probe interval
+      periodSeconds: 60
+      # -- Timeout of each liveness probe
+      timeoutSeconds: 5
+      # -- Failure threshold of the liveness probe
+      failureThreshold: 3
+    # -- Readiness probe configuration
+    readiness:
+      # -- Initial delay of the readiness probe
+      initialDelaySeconds: 60
+      # -- Readiness probe interval
+      periodSeconds: 60
+      # -- Timeout of each readiness probe
+      timeoutSeconds: 5
+      # -- Failure threshold of the readiness probe
+      failureThreshold: 3
   # -- Annotations for the Yontrack pod
   podAnnotations: { }
   # Persistence configuration

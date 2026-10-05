@@ -1,6 +1,6 @@
 # yontrack-chart
 
-![Version: 6.0.0-alpha.2](https://img.shields.io/badge/Version-6.0.0--alpha.2-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0-alpha.0](https://img.shields.io/badge/AppVersion-6.0--alpha.0-informational?style=flat-square)
+![Version: 6.0.0-alpha.3](https://img.shields.io/badge/Version-6.0.0--alpha.3-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0-alpha.0](https://img.shields.io/badge/AppVersion-6.0--alpha.0-informational?style=flat-square)
 
 A Helm chart for Kubernetes
 
@@ -314,11 +314,22 @@ A Helm chart for Kubernetes
 | ontrack.persistence.size | string | `"5Gi"` | PVC initial size |
 | ontrack.persistence.storageClass | string | `nil` | If defined, storageClassName: <storageClass> If set to "-", storageClassName: "", which disables dynamic provisioning If undefined (the default) or set to null, no storageClassName spec is   set, choosing the default provisioner.  (gp2 on AWS, standard on   GKE, AWS & OpenStack) |
 | ontrack.podAnnotations | object | `{}` | Annotations for the Yontrack pod |
-| ontrack.probes | object | `{"startup":{"failureThreshold":5,"initialDelaySeconds":60,"periodSeconds":30}}` | Probes configuration |
-| ontrack.probes.startup | object | `{"failureThreshold":5,"initialDelaySeconds":60,"periodSeconds":30}` | Startup probe configuration |
-| ontrack.probes.startup.failureThreshold | int | `5` | Failure threshold at startup |
-| ontrack.probes.startup.initialDelaySeconds | int | `60` | Initial delay at startup |
-| ontrack.probes.startup.periodSeconds | int | `30` | Probe interval at startup |
+| ontrack.probes | object | `{"liveness":{"failureThreshold":3,"initialDelaySeconds":60,"periodSeconds":60,"timeoutSeconds":5},"readiness":{"failureThreshold":3,"initialDelaySeconds":60,"periodSeconds":60,"timeoutSeconds":5},"startup":{"failureThreshold":36,"initialDelaySeconds":30,"periodSeconds":10,"timeoutSeconds":5}}` | Probes configuration |
+| ontrack.probes.liveness | object | `{"failureThreshold":3,"initialDelaySeconds":60,"periodSeconds":60,"timeoutSeconds":5}` | Liveness probe configuration |
+| ontrack.probes.liveness.failureThreshold | int | `3` | Failure threshold of the liveness probe |
+| ontrack.probes.liveness.initialDelaySeconds | int | `60` | Initial delay of the liveness probe |
+| ontrack.probes.liveness.periodSeconds | int | `60` | Liveness probe interval |
+| ontrack.probes.liveness.timeoutSeconds | int | `5` | Timeout of each liveness probe |
+| ontrack.probes.readiness | object | `{"failureThreshold":3,"initialDelaySeconds":60,"periodSeconds":60,"timeoutSeconds":5}` | Readiness probe configuration |
+| ontrack.probes.readiness.failureThreshold | int | `3` | Failure threshold of the readiness probe |
+| ontrack.probes.readiness.initialDelaySeconds | int | `60` | Initial delay of the readiness probe |
+| ontrack.probes.readiness.periodSeconds | int | `60` | Readiness probe interval |
+| ontrack.probes.readiness.timeoutSeconds | int | `5` | Timeout of each readiness probe |
+| ontrack.probes.startup | object | `{"failureThreshold":36,"initialDelaySeconds":30,"periodSeconds":10,"timeoutSeconds":5}` | Startup probe configuration. The startup budget is `initialDelaySeconds` + `failureThreshold` × `periodSeconds` (390 s by default): the first start runs all the database migrations. |
+| ontrack.probes.startup.failureThreshold | int | `36` | Failure threshold at startup |
+| ontrack.probes.startup.initialDelaySeconds | int | `30` | Initial delay at startup |
+| ontrack.probes.startup.periodSeconds | int | `10` | Probe interval at startup |
+| ontrack.probes.startup.timeoutSeconds | int | `5` | Timeout of each startup probe |
 | ontrack.profiles | string | `"prod"` | Comma-separated list of active Spring profiles |
 | ontrack.resources.limits.cpu | string | `"800m"` | Yontrack resources |
 | ontrack.resources.limits.memory | string | `"2Gi"` | Yontrack resources |
