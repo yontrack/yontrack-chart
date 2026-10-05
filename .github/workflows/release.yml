@@ -65,29 +65,44 @@ jobs:
         run: |
           yontrack validate --validation build --status ${{ steps.packaging.outcome == 'success' && 'PASSED' || 'FAILED' }}
 
-      - name: Getting the previous release
+      - name: Checking if the current version is already released
         id: release
         if: ${{ steps.packaging.outcome != '' }}
         run: |
-          LAST_RELEASE=$(yontrack build search --with-promotion RELEASE --count 1 --output json --accept-not-found | jq -r .DisplayName)
-          echo "Last release: $LAST_RELEASE"
           CURRENT_RELEASE=$(cat charts/yontrack/Chart.yaml | yq -r .version)
           echo "Current release: $CURRENT_RELEASE"
-          echo "lastRelease=$LAST_RELEASE" >> "$GITHUB_OUTPUT"
+          # The GitHub release is the source of truth, whatever the branch
+          if OUTPUT=$(gh release view "$CURRENT_RELEASE" 2>&1); then
+            RELEASED=true
+          elif [[ "$OUTPUT" == *"release not found"* ]]; then
+            RELEASED=false
+          else
+            echo "Cannot check the GitHub release: $OUTPUT"
+            exit 1
+          fi
+          echo "Already released: $RELEASED"
+          # Semver prerelease (6.0.0-alpha.0, ...)
+          if [[ "$CURRENT_RELEASE" == *-* ]]; then
+            PRERELEASE=true
+          else
+            PRERELEASE=false
+          fi
+          echo "Prerelease: $PRERELEASE"
           echo "currentRelease=$CURRENT_RELEASE" >> "$GITHUB_OUTPUT"
+          echo "released=$RELEASED" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publishing in Docker Hub (OCI)
         id: publish
-        if: ${{ steps.release.outcome == 'success' && steps.release.outputs.lastRelease != steps.release.outputs.currentRelease }}
+        if: ${{ steps.release.outcome == 'success' && steps.release.outputs.released == 'false' }}
         run: |
           helm registry login registry-1.docker.io \
             --username "${{ secrets.DOCKER_HUB_USERNAME }}" \
             --password "${{ secrets.DOCKER_HUB_TOKEN }}"
           CHART_PACKAGE="$(ls yontrack-*.tgz)"
-          # Canonical namespace first
           helm push "$CHART_PACKAGE" oci://registry-1.docker.io/yontrack
-          # Legacy namespace, published through 5.x, removed in 6.0
-          helm push "$CHART_PACKAGE" oci://registry-1.docker.io/nemerosa
 
       - name: Changelog since last release
         id: changelog
@@ -100,7 +115,8 @@ jobs:
         run: |
           gh release create ${{ steps.release.outputs.currentRelease }} \
             --title "${{ steps.release.outputs.currentRelease }}" \
-            --notes-file changelog.md
+            --notes-file changelog.md \
+            ${{ steps.release.outputs.prerelease == 'true' && '--prerelease' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

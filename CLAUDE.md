@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is a Helm 3 chart repository that deploys **Yontrack** (a CI/CD tracking platform) to Kubernetes. The chart is published to Docker Hub as an OCI artifact at `oci://registry-1.docker.io/yontrack/yontrack-chart` (also dual-published to the legacy `nemerosa/yontrack-chart` through 5.x).
+This is a Helm 3 chart repository that deploys **Yontrack** (a CI/CD tracking platform) to Kubernetes. The chart is published to Docker Hub as an OCI artifact at `oci://registry-1.docker.io/yontrack/yontrack-chart` (the legacy `nemerosa/yontrack-chart` location only receives 5.x versions, published from the `v5` branch).
 
 The chart bundles three sub-charts: PostgreSQL 17, RabbitMQ 4, and Elasticsearch 9 (Bitnami).
 
@@ -72,14 +72,21 @@ Templates exist in pairs for many secrets: a plain Kubernetes secret (`*-secret.
 
 ### CI/CD
 
+Two release lines:
+
+- `main` — 6.x line. Chart versions with a prerelease suffix (`6.0.0-alpha.N`) are published as GitHub prereleases.
+- `v5` — 5.x patch line, with its own `release.yml` and `.yontrack/ci.yaml`.
+
+Fixes needed on both lines land on `main` and are cherry-picked to `v5` (no forward merges: `Chart.yaml` differs on every commit).
+
 `.github/workflows/release.yml` runs on every push to `main`:
 1. Prepares Keycloak theme tarball
 2. Lints and validates Docker image availability
 3. Packages the chart
-4. Detects whether `chart.version` changed since the previous run
+4. Checks whether a GitHub release already exists for `chart.version`
 5. If new version: pushes OCI artifact to Docker Hub and creates a GitHub release with a generated changelog
 
-`.yontrack/ci.yaml` configures Yontrack's auto-versioning: when a new Yontrack release is promoted upstream, a PR is automatically opened updating `appVersion` in `Chart.yaml`.
+`.yontrack/ci.yaml` configures Yontrack's auto-versioning: when a Yontrack build on the upstream `main` branch is promoted to `GOLD` (the level at which its images reach Docker Hub), a PR is automatically opened updating `appVersion` in `Chart.yaml`.
 
 ### Documentation Generation
 

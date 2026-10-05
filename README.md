@@ -62,8 +62,12 @@ helm install yontrack oci://registry-1.docker.io/yontrack/yontrack-chart
 
 > [!NOTE]
 > The chart used to be published as `oci://registry-1.docker.io/nemerosa/yontrack-chart`.
-> For compatibility, it is still published there for all 5.x versions, but this location
-> **will be removed in 6.0**. Please switch to `oci://registry-1.docker.io/yontrack/yontrack-chart`.
+> For compatibility, it is still published there for all 5.x versions, but **6.x versions
+> are only published** to `oci://registry-1.docker.io/yontrack/yontrack-chart`.
+
+> [!TIP]
+> 6.x prereleases (`6.0.0-alpha.N`, ...) are ignored by Helm unless you pass `--devel`
+> or an explicit `--version`.
 
 To uninstall the chart:
 
