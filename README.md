@@ -30,6 +30,7 @@ This Helm chart is compatible with Helm 3 and allows the installation of Yontrac
 * [Audit trail evidence storage](#audit-trail-evidence-storage)
   * [External S3-compatible storage](#external-s3-compatible-storage)
   * [Bundled MinIO-compatible storage](#bundled-minio-compatible-storage)
+* [Audit trail instance key](#audit-trail-instance-key)
 * [Configuration as code (CasC)](#configuration-as-code-casc)
   * [Secrets mappings](#secrets-mappings)
     * [Using environment variables](#using-environment-variables)
@@ -665,6 +666,56 @@ The root credentials are generated in a secret, unless `auditTrail.minio.existin
 existing one, holding them under the `auditTrail.minio.rootUserKey` & `rootPasswordKey` keys
 (`rootUser` & `rootPassword` by default).
 
+# Audit trail instance key
+
+Yontrack 6 endorses (signs) every audit trail entry with an Ed25519 **instance key**, stored as
+`audit-trail.ed25519` in its key store. With the default `jdbc` key store, Yontrack generates it.
+With `ontrack.config.key_store: secret`, the key store is read-only: the key must be provisioned
+next to the [encryption key](#using-a-k8s-secret-for-the-encryption-keys), or the instance runs
+**unendorsed** (entries are not signed, and an error message is shown to every user).
+
+Generate the key (PKCS#8, PEM):
+
+```bash
+openssl genpkey -algorithm ed25519 -out audit-trail.ed25519
+```
+
+> Yontrack 6.0 has **no key rollover**: back the key up, and share it between all the replicas.
+
+With a plain K8S secret, add the file to the secret holding the encryption key:
+
+```bash
+kubectl create secret generic ontrack-key-store \
+  --from-file=net.nemerosa.ontrack.security.EncryptionServiceImpl.encryption \
+  --from-file=audit-trail.ed25519
+```
+
+With an [external secret](#using-an-external-secret-for-the-decryption-key), store the PEM in the
+secret store and map its property:
+
+```yaml
+ontrack:
+  config:
+    key_store: secret
+    secret_key_store:
+      external:
+        enabled: true
+        store:
+          path: ontrack/encryption
+          key: key
+        auditTrail:
+          # Property holding the instance key
+          key: auditTrailKey
+          # Optional, defaults to `store.path`
+          path: ""
+          # `None` for a PEM (default), `Base64` for a base64-encoded PEM or DER
+          decodingStrategy: None
+```
+
+The key store volume mounts the whole secret, so the key appears in
+`ontrack.config.secret_key_store.directory`. Yontrack looks for a missing key every minute: no
+restart is needed.
+
 # Configuration as code (CasC)
 
 Casc is enabled by default in Yontrack starting from version 5.
@@ -829,6 +880,9 @@ ontrack:
           key: key
 ```
 
+With `key_store: secret`, the [audit trail instance key](#audit-trail-instance-key) must be provisioned in the same
+secret: see `auditTrail` in that section.
+
 # OpenShift support
 
 The chart has some support for OpenShift. To enable it, set `openshift.enabled` to `true`.
@@ -895,6 +949,7 @@ kubectl delete pvc data-<release>-elasticsearch-master-0
 * Elasticsearch is no longer bundled, only used for the optional [metrics export](#exporting-metrics-to-elasticsearch)
 * [Audit trail evidence storage](#audit-trail-evidence-storage), with an optional bundled MinIO-compatible storage
 * [Evidence upload paths](#evidence-upload-size) in their own Ingress, with a body size following `auditTrail.storage.maxSize`
+* [Audit trail instance key](#audit-trail-instance-key) mapped from the external secret store with `ontrack.config.secret_key_store.external.auditTrail`
 * See [Upgrading to 6.x](#upgrading-to-6x)
 
 ## 1.0

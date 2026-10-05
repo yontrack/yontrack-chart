@@ -1,6 +1,6 @@
 # yontrack-chart
 
-![Version: 6.0.0-alpha.5](https://img.shields.io/badge/Version-6.0.0--alpha.5-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0-alpha.0](https://img.shields.io/badge/AppVersion-6.0--alpha.0-informational?style=flat-square)
+![Version: 6.0.0-alpha.6](https://img.shields.io/badge/Version-6.0.0--alpha.6-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0-alpha.0](https://img.shields.io/badge/AppVersion-6.0--alpha.0-informational?style=flat-square)
 
 A Helm chart for Kubernetes
 
@@ -297,7 +297,11 @@ A Helm chart for Kubernetes
 | ontrack.config.key_store | string | `"jdbc"` | Using the database to store the key by default |
 | ontrack.config.license.key | string | `"eyJkYXRhIjoiZXlKdVlXMWxJam9pVXlJc0ltRnpjMmxuYm1WbElqb2lVSFZpYkdsaklpd2lkbUZzYVdSVmJuUnBiQ0k2SWpJd01qVXRNVEl0TXpFaUxDSnRZWGhRY205cVpXTjBjeUk2TVRBc0ltWmxZWFIxY21WeklqcGJleUpwWkNJNkltVjRkR1Z1YzJsdmJpNWxiblpwY205dWJXVnVkSE1pTENKbGJtRmliR1ZrSWpwbVlXeHpaU3dpWkdGMFlTSTZXM3NpYm1GdFpTSTZJbTFoZUVWdWRtbHliMjV0Wlc1MGN5SXNJblpoYkhWbElqb2lNQ0o5WFgxZExDSnRaWE56WVdkbElqb2lXVzkxSUdGeVpTQjFjMmx1WnlCaGJpQmxkbUZzZFdGMGFXOXVJR3hwWTJWdWMyVXVJbjA9Iiwic2lnbmF0dXJlIjoiTUVVQ0lFMWNjQWQxT25ZQXl2M3B4c3ZaQWc0eDE1Q3dmY3FjMFNNRm12ZUU5TVRDQWlFQTJJZHVsZEtxek5DU2Q2VHJNNGxsczhzVGlHWXQ3Nmw5bFRZQ3pFdDBKMjQ9In0="` | Provided license key An evaluation key is provided by default (valid until 2025-12-31, up to 10 projects, no extra features) |
 | ontrack.config.secret_key_store.directory | string | `"/var/ontrack/key_store"` | Directory to use inside the container |
-| ontrack.config.secret_key_store.external | object | `{"enabled":false,"refreshInterval":"6h","store":{"key":"key","kind":"ClusterSecretStore","name":"vault-backend","path":"ontrack/encryption"}}` | Using an external secret |
+| ontrack.config.secret_key_store.external | object | `{"auditTrail":{"decodingStrategy":"None","key":"","path":""},"enabled":false,"refreshInterval":"6h","store":{"key":"key","kind":"ClusterSecretStore","name":"vault-backend","path":"ontrack/encryption"}}` | Using an external secret |
+| ontrack.config.secret_key_store.external.auditTrail | object | `{"decodingStrategy":"None","key":"","path":""}` | Ed25519 instance key of the audit trail, provisioned as `audit-trail.ed25519` in the key store |
+| ontrack.config.secret_key_store.external.auditTrail.decodingStrategy | string | `"None"` | Decoding of the property: `None` for a PEM, `Base64` for a base64-encoded PEM or DER |
+| ontrack.config.secret_key_store.external.auditTrail.key | string | `""` | Property of the store entry holding the Ed25519 instance key of the audit trail (PKCS#8, PEM). When empty, the key is not mapped and the instance runs unendorsed. |
+| ontrack.config.secret_key_store.external.auditTrail.path | string | `""` | Path of the store entry holding the instance key, when it differs from `store.path` |
 | ontrack.config.secret_key_store.external.enabled | bool | `false` | Activate the creation of the External secret |
 | ontrack.config.secret_key_store.external.refreshInterval | string | `"6h"` | Refresh interval |
 | ontrack.config.secret_key_store.external.store | object | `{"key":"key","kind":"ClusterSecretStore","name":"vault-backend","path":"ontrack/encryption"}` | Location of the secret to bind to |

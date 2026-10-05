@@ -493,6 +493,42 @@ render_fails_with "auditTrail.storage.bucket cannot be set with the bundled MinI
 render_fails_with "auditTrail.storage.existingSecret cannot be set with the bundled MinIO" \
     --set auditTrail.minio.enabled=true --set auditTrail.storage.existingSecret=s3
 
+echo "Audit trail instance key"
+
+EXTERNAL_KEY_STORE=(
+    --set ontrack.config.key_store=secret
+    --set ontrack.config.secret_key_store.external.enabled=true
+    --set ontrack.config.secret_key_store.external.store.path=yontrack/dev/demo
+    --set ontrack.config.secret_key_store.external.store.key=yontrackEncryptionKey
+)
+
+# Entries of the key store ExternalSecret, as secretKey=path:property:decodingStrategy
+key_store_entries() {
+    manifests 'select(.kind == "ExternalSecret" and .metadata.name == "ontrack-ontrack-encryption-key") | .spec.data[] | .secretKey + "=" + .remoteRef.key + ":" + .remoteRef.property + ":" + .remoteRef.decodingStrategy' | tr '\n' ' '
+}
+
+test_case "The instance key is not mapped by default"
+if render_ok "${EXTERNAL_KEY_STORE[@]}"; then
+    assert_equals "Key store entries" "$(key_store_entries)" \
+        "net.nemerosa.ontrack.security.EncryptionServiceImpl.encryption=yontrack/dev/demo:yontrackEncryptionKey:Base64 "
+fi
+
+test_case "The instance key is mapped from the path of the encryption key by default"
+if render_ok "${EXTERNAL_KEY_STORE[@]}" \
+    --set ontrack.config.secret_key_store.external.auditTrail.key=yontrackAuditTrailKey; then
+    assert_equals "Key store entries" "$(key_store_entries)" \
+        "net.nemerosa.ontrack.security.EncryptionServiceImpl.encryption=yontrack/dev/demo:yontrackEncryptionKey:Base64 audit-trail.ed25519=yontrack/dev/demo:yontrackAuditTrailKey:None "
+fi
+
+test_case "The instance key is mapped from its own path, with its own decoding"
+if render_ok "${EXTERNAL_KEY_STORE[@]}" \
+    --set ontrack.config.secret_key_store.external.auditTrail.key=key \
+    --set ontrack.config.secret_key_store.external.auditTrail.path=yontrack/dev/audit-trail \
+    --set ontrack.config.secret_key_store.external.auditTrail.decodingStrategy=Base64; then
+    assert_equals "Key store entries" "$(key_store_entries)" \
+        "net.nemerosa.ontrack.security.EncryptionServiceImpl.encryption=yontrack/dev/demo:yontrackEncryptionKey:Base64 audit-trail.ed25519=yontrack/dev/audit-trail:key:Base64 "
+fi
+
 echo "Probes"
 
 # Settings of a probe of the Yontrack container, as initialDelaySeconds/periodSeconds/timeoutSeconds/failureThreshold
