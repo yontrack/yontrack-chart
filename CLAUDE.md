@@ -29,8 +29,8 @@ helm-docs charts/yontrack
 # Package the chart
 helm package charts/yontrack
 
-# Build Keycloak theme tarball (required before packaging)
-tar -czf charts/yontrack/files/themes/yontrack.tar.gz -C charts/yontrack/files/themes/yontrack .
+# Build Keycloak theme tarball (required before packaging; reproducible, see #99)
+./scripts/build-theme.sh
 ```
 
 ## Architecture

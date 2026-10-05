@@ -30,8 +30,8 @@ jobs:
 
       - name: Preparing theme
         run: |
-          cd charts/yontrack/files/themes
-          tar vczf yontrack.tar.gz yontrack
+          chmod +x scripts/build-theme.sh
+          ./scripts/build-theme.sh
 
       - name: Install Helm
         uses: azure/setup-helm@v3
