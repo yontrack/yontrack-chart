@@ -14,7 +14,7 @@ configuration:
         configurations:
           - sourceProject: yontrack
             sourceBranch: main
-            sourcePromotion: RELEASE
+            sourcePromotion: GOLD
             targetPath: charts/yontrack/Chart.yaml
             targetRegex: '^appVersion: "(.*)"$'
             validationStamp: auto
