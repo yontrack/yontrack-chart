@@ -55,6 +55,14 @@ spec:
                 name: {{ $fullName }}
                 port:
                   number: {{ .Values.service.port }}
+          # Audit trail REST API (evidence upload/download, exports, keys) - only this prefix, not /rest as a whole
+          - path: "/rest/extension/audit-trail"
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}
+                port:
+                  number: {{ .Values.service.port }}
           # Next UI
           - path: "/"
             pathType: Prefix

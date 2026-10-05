@@ -136,6 +136,8 @@ The following URLs are available:
 
 * `<host>` - the main Yontrack URL to access its UI
 * `<host>/graphql` - access to the Yontrack GraphQL API
+* `<host>/hook` - incoming hooks
+* `<host>/rest/extension/audit-trail` - the audit trail REST API (evidence upload & download, build exports, public keys), used by CI pipelines, the CLI and the KDSL
 * `<host>/keycloak` - if the default Keycloak setup is enabled, access to the admin console of Keycloak
 
 > The Yontrack management port (8800) serves unauthenticated endpoints and is never routed.

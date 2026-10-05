@@ -242,6 +242,33 @@ render_fails_with "management port must never be exposed outside the cluster" --
 test_case "The management port cannot be the service port"
 render_fails_with "management.service.port must be different from service.port" --set management.service.port=8080
 
+echo "Ingress"
+
+# Backend of an Ingress path, as pathType service:port
+ingress_backend() {
+    manifests "select(.kind == \"Ingress\") | .spec.rules[].http.paths[] | select(.path == \"$1\") | .pathType + \" \" + .backend.service.name + \":\" + (.backend.service.port.number | tostring)"
+}
+
+test_case "The backend APIs are routed to the Yontrack service"
+if render_ok; then
+    for path in /graphql /hook /rest/extension/audit-trail; do
+        assert_equals "$path" "$(ingress_backend "$path")" "Prefix ontrack-yontrack-chart:8080"
+    done
+    assert_equals "/" "$(ingress_backend /)" "Prefix ontrack-yontrack-chart-ui:3000"
+fi
+
+test_case "Only the audit trail is routed under /rest"
+if render_ok; then
+    assert_equals "/rest paths" \
+        "$(manifests 'select(.kind == "Ingress") | .spec.rules[].http.paths[] | select(.path | test("^/rest")) | .path')" \
+        "/rest/extension/audit-trail"
+fi
+
+test_case "The backend APIs follow the service port"
+if render_ok --set service.port=9090; then
+    assert_equals "/rest/extension/audit-trail" "$(ingress_backend /rest/extension/audit-trail)" "Prefix ontrack-yontrack-chart:9090"
+fi
+
 echo "Elasticsearch"
 
 # Environment variables of the Yontrack container whose name matches a regex, as NAME=value (or NAME=secret:key)
