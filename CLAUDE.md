@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a Helm 3 chart repository that deploys **Yontrack** (a CI/CD tracking platform) to Kubernetes. The chart is published to Docker Hub as an OCI artifact at `oci://registry-1.docker.io/yontrack/yontrack-chart` (the legacy `nemerosa/yontrack-chart` location only receives 5.x versions, published from the `v5` branch).
 
-The chart bundles three sub-charts: PostgreSQL 17, RabbitMQ 4, and Elasticsearch 9 (Bitnami).
+The chart bundles two sub-charts: PostgreSQL 17 and RabbitMQ 4 (Bitnami). Since 6.0, Elasticsearch is no longer bundled: Yontrack searches in Postgres (`pg_trgm`), and an external Elasticsearch is only an optional target for the metrics export (`elasticsearch.*` values).
 
 ## Common Commands
 
@@ -55,7 +55,6 @@ The root-level `values.yaml` is a local override file (gitignored) used for loca
 | Next.js UI | `ui-*` | Frontend, uses NextAuth |
 | PostgreSQL | sub-chart | Yontrack's main database |
 | RabbitMQ | sub-chart | Messaging |
-| Elasticsearch | sub-chart | Search indexing |
 | Keycloak | `keycloak-*` | Optional; has its own PostgreSQL StatefulSet |
 
 ### Authentication Modes

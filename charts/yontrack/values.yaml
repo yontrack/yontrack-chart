@@ -798,36 +798,22 @@ rabbitmq:
     password: ontrack
     erlangCookie: ontrack
 
-# -- Local Elasticsearch engine for testing purpose
+# External Elasticsearch, only used for the optional export of the metrics.
+# Since 6.0, the chart no longer bundles Elasticsearch: Yontrack searches in Postgres.
 elasticsearch:
-  # -- Enabling the Elasticsearch deployment (when not using an external Elasticsearch cluster)
-  enabled: true
-  image:
-    repository: bitnamilegacy/elasticsearch
-  volumePermissions:
-    image:
-      repository: bitnamilegacy/os-shell
-  sysctlImage:
-    repository: bitnamilegacy/os-shell
-  security:
+  metrics:
+    # -- Enabling the export of the metrics to Elasticsearch
     enabled: false
-    tls:
-      restEncryption: false
-  master:
-    masterOnly: false
-    replicaCount: 1
-    resourcesPreset: small
-    persistence:
-      enabled: true
-      size: 5Gi
-      accessModes:
-        - ReadWriteOnce
-  data:
-    replicaCount: 0
-  coordinating:
-    replicaCount: 0
-  ingest:
-    replicaCount: 0
+    # -- Name of the Elasticsearch index for the metrics
+    index: ontrack_metrics
+  # -- URIs of the Elasticsearch cluster (comma-separated), required when the metrics export is enabled
+  uris: ""
+  # -- Username to connect to Elasticsearch
+  username: ""
+  # -- Name of an existing secret holding the password to connect to Elasticsearch
+  existingSecret: ""
+  # -- Key of the password in the existing secret
+  existingSecretPasswordKey: password
 
 # -- In case you want to specify different resources for emptyDir than {}
 emptyDir: { }

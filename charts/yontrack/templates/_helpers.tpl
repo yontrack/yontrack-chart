@@ -354,3 +354,13 @@ The management port (8800) serves unauthenticated endpoints.
   {{- fail (printf "The management port must never be exposed outside the cluster: it shares the Yontrack service, whose type must then be ClusterIP, not %s. Set management.service.specific to true to use another service type." .Values.service.type) }}
 {{- end }}
 {{- end }}
+
+{{/*
+Elasticsearch is no longer bundled since 6.0: it is only an optional target for the metrics export.
+Fails for 5.x values still expecting a bundled cluster.
+*/}}
+{{- define "ontrack.elasticsearch.validate" -}}
+{{- if .Values.elasticsearch.enabled }}
+  {{- fail "elasticsearch.enabled is no longer supported: since 6.0, the chart does not bundle Elasticsearch, which Yontrack only needs for the optional metrics export (elasticsearch.metrics.enabled). See the \"Upgrading to 6.x\" section of the chart README." }}
+{{- end }}
+{{- end }}

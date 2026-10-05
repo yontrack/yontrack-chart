@@ -25,7 +25,7 @@ This Helm chart is compatible with Helm 3 and allows the installation of Yontrac
     * [LDAP in Keycloak](#ldap-in-keycloak)
     * [Okta](#okta)
 * [Using a managed database](#using-a-managed-database)
-* [Using an external Elasticsearch instance](#using-an-external-elasticsearch-instance)
+* [Exporting metrics to Elasticsearch](#exporting-metrics-to-elasticsearch)
 * [Configuration as code (CasC)](#configuration-as-code-casc)
   * [Secrets mappings](#secrets-mappings)
     * [Using environment variables](#using-environment-variables)
@@ -38,7 +38,9 @@ This Helm chart is compatible with Helm 3 and allows the installation of Yontrac
   * [Using an external secret for the decryption key](#using-an-external-secret-for-the-decryption-key)
 * [OpenShift support](#openshift-support)
 * [GitOps / rendered manifests](#gitops--rendered-manifests)
+* [Upgrading to 6.x](#upgrading-to-6x)
 * [Change log](#change-log)
+  * [6.0](#60)
   * [1.0](#10)
   * [0.13](#013)
   * [0.12](#012)
@@ -79,8 +81,10 @@ This installs the following services:
 
 * Yontrack itself
 * a Postgres 17 database
-* an Elasticsearch 9 single node
 * a RabbitMQ message broker
+
+Elasticsearch is no longer needed since 6.0: Yontrack searches in its Postgres database.
+It can still be used as a target for the [metrics export](#exporting-metrics-to-elasticsearch).
 
 The default authentication mechanism, if no other configuration is provided, relies on Keycloak
 and its own database and two additional services are installed:
@@ -506,30 +510,33 @@ This requires the following environmment variables to be set:
 * `SPRING_DATASOURCE_USERNAME` - username for the connection
 * `SPRING_DATASOURCE_PASSWORD` - password for the connection
 
-# Using an external Elasticsearch instance
+> [!IMPORTANT]
+> Yontrack 6 needs the `pg_trgm` extension of Postgres for its search. It creates it at its first start
+> (`CREATE EXTENSION IF NOT EXISTS pg_trgm`), which works when its database user owns the database:
+> `pg_trgm` is a trusted extension since Postgres 13, including on RDS, Cloud SQL and Azure.
+> Otherwise, create it beforehand, once, in the Yontrack database, as a user who can.
+> See [Search index](https://github.com/yontrack/yontrack/blob/main/ontrack-docs/docs/content/operations/search-index.md).
 
-To use an external Elasticsearch instance, you need to disable the creation of the
-local Elasticsearch instance by the chart in the values:
+# Exporting metrics to Elasticsearch
+
+Yontrack can export its metrics to an Elasticsearch cluster. This is disabled by default and the chart
+does not deploy any Elasticsearch: point it to an existing cluster.
 
 ```yaml
 elasticsearch:
-  enabled: false
+  metrics:
+    enabled: true
+    # Optional, defaults to ontrack_metrics
+    index: ontrack_metrics
+  uris: https://elasticsearch.example.com:9200
+  # Optional credentials
+  username: yontrack
+  # Existing secret holding the password
+  existingSecret: yontrack-elasticsearch
+  existingSecretPasswordKey: password
 ```
 
-and to provide the connection parameters as environment variables:
-
-```yaml
-ontrack:
-  env:
-    - name: SPRING_ELASTICSEARCH_URIS
-      value:
-    - name: SPRING_ELASTICSEARCH_USERNAME
-      value:
-    - name: SPRING_ELASTICSEARCH_PASSWORD
-      valueFrom:
-        secretRef:
-        # ...
-```
+When the export is enabled, the Elasticsearch health indicator is part of the health of Yontrack.
 
 # Configuration as code (CasC)
 
@@ -708,7 +715,7 @@ When enabled:
 * default security contexts are more likely to be compatible with OpenShift restricted SCC.
 * init containers are also configured with security contexts.
 
-For the sub-charts (PostgreSQL, RabbitMQ, Elasticsearch), the `global.compatibility.openshift.adaptSecurityContext` is set to `auto` by default to help them run on OpenShift.
+For the sub-charts (PostgreSQL, RabbitMQ), the `global.compatibility.openshift.adaptSecurityContext` is set to `auto` by default to help them run on OpenShift.
 
 # GitOps / rendered manifests
 
@@ -723,10 +730,30 @@ to re-enable them (useful for observability tooling that relies on these labels 
 includeVersionLabels: true
 ```
 
+# Upgrading to 6.x
+
+Chart 6.x installs Yontrack 6, which no longer needs Elasticsearch: the chart does not deploy it anymore.
+See also the [migration guide](https://github.com/yontrack/yontrack/blob/main/ontrack-docs/docs/content/appendix/migration-to-v6.md) of Yontrack.
+
+* Remove `elasticsearch.enabled` and the other settings of the former Elasticsearch sub-chart from your values.
+  Rendering fails if `elasticsearch.enabled` is still `true`.
+* If you used an external Elasticsearch for the metrics, see [Exporting metrics to Elasticsearch](#exporting-metrics-to-elasticsearch).
+  The `SPRING_ELASTICSEARCH_*` environment variables are no longer needed otherwise.
+* After the upgrade, the volume of the former Elasticsearch instance is kept but no longer used.
+  The search is rebuilt from the Postgres database at the first start of Yontrack 6. Delete the volume with:
+
+```bash
+kubectl delete pvc data-<release>-elasticsearch-master-0
+```
+
+* With a [managed database](#using-a-managed-database), check the `pg_trgm` prerequisite.
+* The legacy `oci://registry-1.docker.io/nemerosa/yontrack-chart` location only receives 5.x versions.
+
 # Change log
 
 | Version        | Postgres | Elasticsearch | Rabbit MQ | Kubernetes | Minimal Yontrack version |
 |----------------|----------|---------------|-----------|------------|-------------------------|
+| [6.0.x](#60)   | 17       | optional (metrics only) | 4 | 1.24  | 6.0                     |
 | [5.0.x](#10)   | 17       | 9             | 4         | 1.24       | 5.0.0                   |
 | [0.13.x](#013) | 15       | 7             | 3         | 1.24       | 4.12.3                  |
 | [0.12.x](#012) | 15       | 7             | 3         | 1.24       | 4.11.0                  |
@@ -734,6 +761,12 @@ includeVersionLabels: true
 | [0.10.x](#010) | 15       | 7             | 3         | 1.24       | 4.8.1                   |
 | 0.9.x          | 15       | 7             | 3         | 1.24       | 4.7.20                  |
 | 0.8.x          | 11       | 7             | 3         | 1.24       | 4.7.13                  |
+
+## 6.0
+
+* Support for Yontrack 6
+* Elasticsearch is no longer bundled, only used for the optional [metrics export](#exporting-metrics-to-elasticsearch)
+* See [Upgrading to 6.x](#upgrading-to-6x)
 
 ## 1.0
 

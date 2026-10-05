@@ -25,15 +25,6 @@ for IMAGE in $IMAGES; do
             fi
         fi
         
-        if [[ "$IMAGE" =~ elasticsearch ]]; then
-            if [[ "$TAG" =~ ^9 ]]; then
-                echo -n ", version 9 OK"
-            else
-                echo -n ", version $TAG NOT 9"
-                FAILED=1
-            fi
-        fi
-        
         echo ""
     else
         echo "FAILED (unreachable)"

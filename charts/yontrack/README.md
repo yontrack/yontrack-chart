@@ -1,6 +1,6 @@
 # yontrack-chart
 
-![Version: 6.0.0-alpha.0](https://img.shields.io/badge/Version-6.0.0--alpha.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0-alpha.0](https://img.shields.io/badge/AppVersion-6.0--alpha.0-informational?style=flat-square)
+![Version: 6.0.0-alpha.1](https://img.shields.io/badge/Version-6.0.0--alpha.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0-alpha.0](https://img.shields.io/badge/AppVersion-6.0--alpha.0-informational?style=flat-square)
 
 A Helm chart for Kubernetes
 
@@ -8,7 +8,6 @@ A Helm chart for Kubernetes
 
 | Repository | Name | Version |
 |------------|------|---------|
-| https://charts.bitnami.com/bitnami | elasticsearch | 22.1.6 |
 | https://charts.bitnami.com/bitnami | postgresql | 16.7.27 |
 | https://charts.bitnami.com/bitnami | rabbitmq | 16.0.14 |
 
@@ -203,8 +202,12 @@ A Helm chart for Kubernetes
 | auth.oidc.scope | string | `"openid profile email"` | OIDC scope |
 | auth.oidc.trailingSlash | bool | `false` | Trailing slash for the issuer URL (used for Auth0) |
 | auth.provisioning | bool | `true` | Provisioning of groups & initial administrator |
-| elasticsearch | object | `{"coordinating":{"replicaCount":0},"data":{"replicaCount":0},"enabled":true,"image":{"repository":"bitnamilegacy/elasticsearch"},"ingest":{"replicaCount":0},"master":{"masterOnly":false,"persistence":{"accessModes":["ReadWriteOnce"],"enabled":true,"size":"5Gi"},"replicaCount":1,"resourcesPreset":"small"},"security":{"enabled":false,"tls":{"restEncryption":false}},"sysctlImage":{"repository":"bitnamilegacy/os-shell"},"volumePermissions":{"image":{"repository":"bitnamilegacy/os-shell"}}}` | Local Elasticsearch engine for testing purpose |
-| elasticsearch.enabled | bool | `true` | Enabling the Elasticsearch deployment (when not using an external Elasticsearch cluster) |
+| elasticsearch.existingSecret | string | `""` | Name of an existing secret holding the password to connect to Elasticsearch |
+| elasticsearch.existingSecretPasswordKey | string | `"password"` | Key of the password in the existing secret |
+| elasticsearch.metrics.enabled | bool | `false` | Enabling the export of the metrics to Elasticsearch |
+| elasticsearch.metrics.index | string | `"ontrack_metrics"` | Name of the Elasticsearch index for the metrics |
+| elasticsearch.uris | string | `""` | URIs of the Elasticsearch cluster (comma-separated), required when the metrics export is enabled |
+| elasticsearch.username | string | `""` | Username to connect to Elasticsearch |
 | emptyDir | object | `{}` | In case you want to specify different resources for emptyDir than {} |
 | extraContainers | list | `[]` | Array of extra containers to run alongside the Yontrack container  Example: - name: myapp-container   image: busybox   command: ['sh', '-c', 'echo Hello && sleep 3600']  |
 | fullnameOverride | string | `""` | If defined, uses this name for the resource names instead of the using the chart name |
