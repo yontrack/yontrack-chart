@@ -1,5 +1,5 @@
-To test the themes locally, run:
+To test the themes locally, run from the repository root:
 
 ```shell
-tar czf yontrack.tar.gz yontrack
+./scripts/build-theme.sh
 ```

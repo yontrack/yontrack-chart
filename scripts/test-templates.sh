@@ -509,6 +509,25 @@ if render_ok \
     assert_equals "readiness probe" "$(ontrack_probe readinessProbe)" "9/10/11/12"
 fi
 
+echo "Keycloak theme"
+
+test_case "The theme archive does not depend on the checkout time, umask or owner (#99)"
+for run in 1 2; do
+    mkdir -p "$TMP/themes$run"
+    cp -R "$CHART/files/themes/yontrack" "$TMP/themes$run/"
+done
+# Second checkout: later timestamps, other permissions
+find "$TMP/themes2" -exec touch -t 203001010000 {} +
+chmod -R g+w "$TMP/themes2"
+for run in 1 2; do
+    if ! THEMES="$TMP/themes$run" ./scripts/build-theme.sh "$TMP/theme$run.tar.gz"; then
+        fail "theme archive build failed"
+    fi
+done
+if ! cmp -s "$TMP/theme1.tar.gz" "$TMP/theme2.tar.gz"; then
+    fail "the theme archive changes between two checkouts of the same files"
+fi
+
 if [ $FAILED -eq 1 ]; then
     echo "Some template tests failed."
     exit 1
