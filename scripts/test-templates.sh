@@ -356,6 +356,17 @@ if render_ok; then
         "/keycloak /graphql /hook /rest/extension/audit-trail / "
 fi
 
+echo "Bitnami sub-charts"
+
+# Each Bitnami sub-chart embeds its own version of the "common" library, and Helm keeps only one definition per
+# template name: the image check of RabbitMQ must not depend on another sub-chart lending it a lenient version (#136).
+test_case "RabbitMQ renders on its own, with an external Postgres (#136)"
+if render_ok --set postgresql.local=false --set postgresql.postgresFromEnv=true; then
+    assert_equals "Postgres resources" "$(manifests 'select(.metadata.name | test("postgresql")) | .kind + "/" + .metadata.name')" ""
+    assert_equals "RabbitMQ image" "$(manifests 'select(.kind == "StatefulSet" and (.metadata.name | test("rabbitmq"))) | .spec.template.spec.containers[] | select(.name == "rabbitmq") | .image')" \
+        "docker.io/bitnamilegacy/rabbitmq:4.1.3-debian-12-r1"
+fi
+
 echo "Elasticsearch"
 
 # Environment variables of the Yontrack container whose name matches a regex, as NAME=value (or NAME=secret:key)

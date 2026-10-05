@@ -54,6 +54,10 @@ global:
     openshift:
       # -- Whether to adapt the security context for OpenShift
       adaptSecurityContext: auto
+  security:
+    # -- Skips the image verification of the Bitnami sub-charts, which all deliberately point to the `bitnamilegacy/*` images.
+    # Without it, the RabbitMQ sub-chart refuses to render when it is the only Bitnami sub-chart (external Postgres).
+    allowInsecureImages: true
 
 service:
   # -- Service type for the Yontrack service.

@@ -1,6 +1,6 @@
 # yontrack-chart
 
-![Version: 6.0.0-alpha.4](https://img.shields.io/badge/Version-6.0.0--alpha.4-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0-alpha.0](https://img.shields.io/badge/AppVersion-6.0--alpha.0-informational?style=flat-square)
+![Version: 6.0.0-alpha.5](https://img.shields.io/badge/Version-6.0.0--alpha.5-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0-alpha.0](https://img.shields.io/badge/AppVersion-6.0--alpha.0-informational?style=flat-square)
 
 A Helm chart for Kubernetes
 
@@ -232,9 +232,10 @@ A Helm chart for Kubernetes
 | emptyDir | object | `{}` | In case you want to specify different resources for emptyDir than {} |
 | extraContainers | list | `[]` | Array of extra containers to run alongside the Yontrack container  Example: - name: myapp-container   image: busybox   command: ['sh', '-c', 'echo Hello && sleep 3600']  |
 | fullnameOverride | string | `""` | If defined, uses this name for the resource names instead of the using the chart name |
-| global | object | `{"compatibility":{"openshift":{"adaptSecurityContext":"auto"}}}` | Global configuration for all sub-charts |
+| global | object | `{"compatibility":{"openshift":{"adaptSecurityContext":"auto"}},"security":{"allowInsecureImages":true}}` | Global configuration for all sub-charts |
 | global.compatibility | object | `{"openshift":{"adaptSecurityContext":"auto"}}` | Configuration for OpenShift |
 | global.compatibility.openshift.adaptSecurityContext | string | `"auto"` | Whether to adapt the security context for OpenShift |
+| global.security.allowInsecureImages | bool | `true` | Skips the image verification of the Bitnami sub-charts, which all deliberately point to the `bitnamilegacy/*` images. Without it, the RabbitMQ sub-chart refuses to render when it is the only Bitnami sub-chart (external Postgres). |
 | image.pullPolicy | string | `"IfNotPresent"` | Pull policy |
 | image.repository | string | `"yontrack/yontrack"` | Image to use for Yontrack (backend) |
 | image.tag | string | `""` | Overrides the image tag whose default is the chart appVersion. |
