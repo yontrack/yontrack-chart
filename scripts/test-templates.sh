@@ -242,6 +242,39 @@ render_fails_with "management port must never be exposed outside the cluster" --
 test_case "The management port cannot be the service port"
 render_fails_with "management.service.port must be different from service.port" --set management.service.port=8080
 
+echo "Elasticsearch"
+
+# Environment variables of the Yontrack container whose name matches a regex, as NAME=value (or NAME=secret:key)
+ontrack_env() {
+    manifests "select(.kind == \"StatefulSet\") | .spec.template.spec.containers[] | select(.name == \"yontrack-chart\") | .env[] | select(.name | test(\"$1\")) | .name + \"=\" + (.value // (.valueFrom.secretKeyRef.name + \":\" + .valueFrom.secretKeyRef.key))"
+}
+
+test_case "No Elasticsearch by default"
+if render_ok; then
+    assert_equals "Elasticsearch resources" "$(manifests 'select(.metadata.name | test("elasticsearch")) | .kind + "/" + .metadata.name')" ""
+    assert_equals "Elasticsearch init containers" "$(manifests 'select(.kind == "StatefulSet") | .spec.template.spec.initContainers[]?.name | select(test("elasticsearch"))')" ""
+    assert_equals "Elasticsearch env" "$(ontrack_env 'ELASTIC')" ""
+fi
+
+test_case "Metrics export to Elasticsearch"
+if render_ok --set elasticsearch.metrics.enabled=true --set elasticsearch.uris=https://es:9200 --set elasticsearch.username=yontrack --set elasticsearch.existingSecret=es-secret; then
+    assert_equals "Elasticsearch env" "$(ontrack_env 'ELASTIC' | sort | tr '\n' ' ')" \
+        "ONTRACK_EXTENSION_ELASTIC_METRICS_ENABLED=true ONTRACK_EXTENSION_ELASTIC_METRICS_INDEX_NAME=ontrack_metrics SPRING_ELASTICSEARCH_PASSWORD=es-secret:password SPRING_ELASTICSEARCH_URIS=https://es:9200 SPRING_ELASTICSEARCH_USERNAME=yontrack "
+    assert_equals "Elasticsearch resources" "$(manifests 'select(.metadata.name | test("elasticsearch")) | .kind + "/" + .metadata.name')" ""
+fi
+
+test_case "Metrics export to Elasticsearch without credentials"
+if render_ok --set elasticsearch.metrics.enabled=true --set elasticsearch.uris=https://es:9200; then
+    assert_equals "Elasticsearch env" "$(ontrack_env 'ELASTIC' | sort | tr '\n' ' ')" \
+        "ONTRACK_EXTENSION_ELASTIC_METRICS_ENABLED=true ONTRACK_EXTENSION_ELASTIC_METRICS_INDEX_NAME=ontrack_metrics SPRING_ELASTICSEARCH_URIS=https://es:9200 "
+fi
+
+test_case "Metrics export to Elasticsearch needs the URIs"
+render_fails_with "elasticsearch.uris is required when elasticsearch.metrics.enabled is true" --set elasticsearch.metrics.enabled=true
+
+test_case "Elasticsearch is no longer bundled"
+render_fails_with "elasticsearch.enabled is no longer supported" --set elasticsearch.enabled=true
+
 if [ $FAILED -eq 1 ]; then
     echo "Some template tests failed."
     exit 1

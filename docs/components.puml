@@ -4,7 +4,6 @@ package namespace {
     database postgres
     component ontrack
     component "next-ui" as nextUI
-    component elasticSearch
     component rabbitMQ
 
     package "keycloak <optional>" as keycloak-package {
@@ -15,7 +14,6 @@ package namespace {
 
 nextUI --> ontrack: 8080
 ontrack --> postgres: 5432
-ontrack --> elasticSearch
 ontrack --> rabbitMQ
 
 keycloak --> "postgres-keycloak": 5432
@@ -28,5 +26,8 @@ interface ingress
 ingress --> nextUI: 3000 (/)
 ingress --> keycloak: 8080 (/keycloak => /keycloak)
 ingress --> ontrack: 8080 (/graphql => /graphql)
+
+cloud "elasticsearch <optional, external>" as elasticSearch
+ontrack ..> elasticSearch: metrics export
 
 @enduml

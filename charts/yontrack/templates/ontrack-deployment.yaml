@@ -1,3 +1,4 @@
+{{- include "ontrack.elasticsearch.validate" . }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -18,23 +19,6 @@ spec:
       labels:
         {{- include "ontrack.selectorLabels" . | nindent 8 }}
     spec:
-      {{- if .Values.elasticsearch.enabled }}
-      initContainers:
-        - name: wait-for-elasticsearch
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          image: {{ .Values.initContainers.image.repository }}:{{ .Values.initContainers.image.tag }}
-          command:
-            - 'sh'
-            - '-c'
-            - |
-              until nc -z {{ .Release.Name }}-elasticsearch 9200; do
-                echo "Waiting for Elasticsearch to be ready..."
-                sleep 5
-              done
-              echo "Elasticsearch is ready!"
-          resources: {{ toYaml .Values.initContainers.resources | nindent 12 }}
-      {{- end }}
       serviceAccountName: {{ include "ontrack.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
@@ -123,10 +107,27 @@ spec:
               value: {{ .Values.ontrack.config.secret_key_store.directory | quote }}
             {{- end }}
             ########################################
-            # Elasticsearch configuration
+            # Elasticsearch metrics export
             ########################################
+            {{- if .Values.elasticsearch.metrics.enabled }}
+            - name: ONTRACK_EXTENSION_ELASTIC_METRICS_ENABLED
+              value: "true"
+            - name: ONTRACK_EXTENSION_ELASTIC_METRICS_INDEX_NAME
+              value: {{ .Values.elasticsearch.metrics.index | quote }}
             - name: SPRING_ELASTICSEARCH_URIS
-              value: "http://{{ .Release.Name }}-elasticsearch-master-hl:9200"
+              value: {{ required "elasticsearch.uris is required when elasticsearch.metrics.enabled is true" .Values.elasticsearch.uris | quote }}
+            {{- with .Values.elasticsearch.username }}
+            - name: SPRING_ELASTICSEARCH_USERNAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.elasticsearch.existingSecret }}
+            - name: SPRING_ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: {{ $.Values.elasticsearch.existingSecretPasswordKey | quote }}
+            {{- end }}
+            {{- end }}
             ########################################
             # RabbitMQ configuration
             ########################################
