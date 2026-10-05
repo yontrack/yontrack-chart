@@ -168,8 +168,9 @@ issued for the main Ingress only, and shared through the TLS secret. On top of t
 
 * `nginx.ingress.kubernetes.io/proxy-body-size` - `auditTrail.storage.maxSize` plus 1 MB for the
   multipart envelope (the backend accepts the same), rounded up to the next MB: `51m` by default,
-  `101m` for `maxSize: 100MB`. An upload above `maxSize` then reaches Yontrack, which refuses it
-  with a `413` and the `audit-trail.evidence.too-large` error.
+  `101m` for `maxSize: 100MB`. An upload just above `maxSize` then reaches Yontrack, which refuses it
+  with a `413` and the `audit-trail.evidence.too-large` error; nginx still refuses bodies above its
+  own limit.
 * `nginx.ingress.kubernetes.io/proxy-request-buffering: "off"` - the uploads are streamed to Yontrack
   instead of being buffered by nginx.
 

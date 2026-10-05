@@ -26,15 +26,7 @@ metadata:
   annotations:
     {{- toYaml $annotations | nindent 4 }}
 spec:
-  {{- if .Values.ingress.ingressClassName }}
-  ingressClassName: {{ .Values.ingress.ingressClassName | quote }}
-  {{- end }}
-  {{- if .Values.ingress.tls.enabled }}
-  tls:
-    - hosts:
-        - {{ .Values.ingress.host }}
-      secretName: {{ .Values.ingress.tls.secretName | default (printf "%s-tls" .Values.ingress.host) | quote }}
-  {{- end }}
+  {{- include "ontrack.ingress.classAndTls" . | trim | nindent 2 }}
   {{- /* No path must ever target the management port, which serves unauthenticated endpoints (see scripts/test-templates.sh) */}}
   rules:
     - host: {{ .Values.ingress.host }}

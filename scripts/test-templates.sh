@@ -275,14 +275,19 @@ UPLOADS=ontrack-yontrack-chart-uploads
 BACKEND_UPLOADS=/rest/extension/audit-trail/validation-runs
 UI_UPLOADS=/api/protected/uploads/audit-trail/validation-runs
 
+# yq selector of an Ingress by name
+ingress_named() {
+    echo "select(.kind == \"Ingress\" and .metadata.name == \"$1\")"
+}
+
 # Annotation of an Ingress
 ingress_annotation() {
-    manifests "select(.kind == \"Ingress\" and .metadata.name == \"$1\") | .metadata.annotations[\"$2\"]"
+    manifests "$(ingress_named "$1") | .metadata.annotations[\"$2\"]"
 }
 
 # Paths of an Ingress, as path pathType service:port
 ingress_paths() {
-    manifests "select(.kind == \"Ingress\" and .metadata.name == \"$1\") | .spec.rules[].http.paths[] | .path + \" \" + .pathType + \" \" + .backend.service.name + \":\" + (.backend.service.port.number | tostring)"
+    manifests "$(ingress_named "$1") | .spec.rules[].http.paths[] | .path + \" \" + .pathType + \" \" + .backend.service.name + \":\" + (.backend.service.port.number | tostring)"
 }
 
 test_case "The upload paths have their own Ingress, with a body size following the default maximum size"
@@ -332,9 +337,9 @@ if render_ok --set ingress.ingressClassName=nginx --set ingress.host=yontrack.ex
     --set-string 'ingress.annotations.kubernetes\.io/tls-acme=true'; then
     INGRESS_SPEC='.spec.ingressClassName + " " + .spec.rules[0].host + " " + (.spec.tls | to_json(0))'
     assert_equals "class, host & TLS" \
-        "$(manifests "select(.kind == \"Ingress\" and .metadata.name == \"$UPLOADS\") | $INGRESS_SPEC")" \
-        "$(manifests "select(.kind == \"Ingress\" and .metadata.name == \"ontrack-yontrack-chart\") | $INGRESS_SPEC")"
-    assert_equals "upload annotations" "$(manifests "select(.kind == \"Ingress\" and .metadata.name == \"$UPLOADS\") | .metadata.annotations | to_entries | map(.key + \"=\" + .value) | sort | join(\" \")")" \
+        "$(manifests "$(ingress_named "$UPLOADS") | $INGRESS_SPEC")" \
+        "$(manifests "$(ingress_named ontrack-yontrack-chart) | $INGRESS_SPEC")"
+    assert_equals "upload annotations" "$(manifests "$(ingress_named "$UPLOADS") | .metadata.annotations | to_entries | map(.key + \"=\" + .value) | sort | join(\" \")")" \
         "nginx.ingress.kubernetes.io/proxy-body-size=51m nginx.ingress.kubernetes.io/proxy-request-buffering=off nginx.ingress.kubernetes.io/whitelist-source-range=10.0.0.0/8"
     assert_equals "main body size" "$(ingress_annotation ontrack-yontrack-chart nginx.ingress.kubernetes.io/proxy-body-size)" "8m"
 fi
@@ -346,7 +351,7 @@ fi
 
 test_case "The main Ingress keeps the default body size"
 if render_ok; then
-    assert_equals "main annotations" "$(manifests 'select(.kind == "Ingress" and .metadata.name == "ontrack-yontrack-chart") | .metadata.annotations | to_json(0)')" "null"
+    assert_equals "main annotations" "$(manifests "$(ingress_named ontrack-yontrack-chart) | .metadata.annotations | to_json(0)")" "null"
     assert_equals "main paths" "$(ingress_paths ontrack-yontrack-chart | cut -d' ' -f1 | tr '\n' ' ')" \
         "/keycloak /graphql /hook /rest/extension/audit-trail / "
 fi

@@ -458,7 +458,7 @@ Maximum size of an evidence file, in bytes. auditTrail.storage.maxSize is a Spri
 (B, KB, MB, GB or TB, in powers of 1024, bytes when there is no unit), defaulting to Yontrack's 50MB.
 */}}
 {{- define "ontrack.auditTrail.maxSizeBytes" -}}
-{{- $raw := .Values.auditTrail.storage.maxSize | default "50MB" }}
+{{- $raw := (include "ontrack.auditTrail.storage" . | fromJson).maxSize | default "50MB" }}
 {{- if kindIs "float64" $raw }}
   {{- $raw = int64 $raw }}
 {{- end }}
@@ -468,4 +468,19 @@ Maximum size of an evidence file, in bytes. auditTrail.storage.maxSize is a Spri
 {{- end }}
 {{- $units := dict "" 1 "B" 1 "KB" 1024 "MB" 1048576 "GB" 1073741824 "TB" 1099511627776 }}
 {{- mul (regexFind "^[0-9]+" $size | atoi) (get $units (regexReplaceAll "^[0-9]+" $size "")) }}
+{{- end }}
+
+{{/*
+Class & TLS of the Ingresses, shared by the main one and the upload one
+*/}}
+{{- define "ontrack.ingress.classAndTls" -}}
+{{- if .Values.ingress.ingressClassName }}
+ingressClassName: {{ .Values.ingress.ingressClassName | quote }}
+{{- end }}
+{{- if .Values.ingress.tls.enabled }}
+tls:
+  - hosts:
+      - {{ .Values.ingress.host }}
+    secretName: {{ .Values.ingress.tls.secretName | default (printf "%s-tls" .Values.ingress.host) | quote }}
+{{- end }}
 {{- end }}
