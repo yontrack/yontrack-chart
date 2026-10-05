@@ -1,0 +1,51 @@
+{{- /*
+Upload paths of the audit trail evidence, in their own Ingress (same class, host & TLS as the main one)
+so that a larger request body size applies to them only. When disabled, the main Ingress serves them.
+Its annotations are the main ones, without the certificate issuance (done for the main Ingress only),
+then the nginx ones for the body size, then ingress.uploads.annotations.
+*/}}
+{{- if and .Values.ingress.enabled .Values.ingress.uploads.enabled -}}
+{{- $fullName := include "ontrack.fullname" . -}}
+{{- $annotations := dict }}
+{{- range $key, $value := .Values.ingress.annotations }}
+  {{- if not (or (contains "cert-manager.io/" $key) (eq $key "kubernetes.io/tls-acme")) }}
+    {{- $_ := set $annotations $key $value }}
+  {{- end }}
+{{- end }}
+{{- $_ := set $annotations "nginx.ingress.kubernetes.io/proxy-body-size" (include "ontrack.ingress.uploads.bodySize" .) }}
+{{- $_ := set $annotations "nginx.ingress.kubernetes.io/proxy-request-buffering" "off" }}
+{{- range $key, $value := .Values.ingress.uploads.annotations }}
+  {{- $_ := set $annotations $key $value }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-uploads
+  labels:
+    {{- include "ontrack.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+spec:
+  {{- include "ontrack.ingress.classAndTls" . | trim | nindent 2 }}
+  {{- /* No path must ever target the management port, which serves unauthenticated endpoints (see scripts/test-templates.sh) */}}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          # Evidence upload through the REST API (CI pipelines, CLI, KDSL)
+          - path: "/rest/extension/audit-trail/validation-runs"
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}
+                port:
+                  number: {{ .Values.service.port }}
+          # Evidence upload from the UI, which streams the body on to the backend
+          - path: "/api/protected/uploads/audit-trail/validation-runs"
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}-ui
+                port:
+                  number: {{ .Values.ontrack.ui.service.port }}
+{{- end }}
