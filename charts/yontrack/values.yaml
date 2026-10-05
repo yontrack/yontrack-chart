@@ -262,6 +262,15 @@ ontrack:
           path: ontrack/encryption
           # -- Name of the key in the external secret
           key: key
+        # -- Ed25519 instance key of the audit trail, provisioned as `audit-trail.ed25519` in the key store
+        auditTrail:
+          # -- Property of the store entry holding the Ed25519 instance key of the audit trail (PKCS#8, PEM).
+          # When empty, the key is not mapped and the instance runs unendorsed.
+          key: ""
+          # -- Path of the store entry holding the instance key, when it differs from `store.path`
+          path: ""
+          # -- Decoding of the property: `None` for a PEM, `Base64` for a base64-encoded PEM or DER
+          decodingStrategy: None
     # License management
     license:
       # -- Provided license key
