@@ -368,6 +368,33 @@ render_fails_with "auditTrail.storage.bucket cannot be set with the bundled MinI
 render_fails_with "auditTrail.storage.existingSecret cannot be set with the bundled MinIO" \
     --set auditTrail.minio.enabled=true --set auditTrail.storage.existingSecret=s3
 
+echo "Probes"
+
+# Settings of a probe of the Yontrack container, as initialDelaySeconds/periodSeconds/timeoutSeconds/failureThreshold
+ontrack_probe() {
+    manifests "select(.kind == \"StatefulSet\") | .spec.template.spec.containers[] | select(.name == \"yontrack-chart\") | .$1 | [.initialDelaySeconds, .periodSeconds, .timeoutSeconds, .failureThreshold] | join(\"/\")"
+}
+
+test_case "Default probes leave enough time for the first start"
+if render_ok; then
+    assert_equals "startup probe" "$(ontrack_probe startupProbe)" "30/10/5/36"
+    assert_equals "liveness probe" "$(ontrack_probe livenessProbe)" "60/60/5/3"
+    assert_equals "readiness probe" "$(ontrack_probe readinessProbe)" "60/60/5/3"
+fi
+
+test_case "Probes are configurable"
+if render_ok \
+    --set ontrack.probes.startup.initialDelaySeconds=1 --set ontrack.probes.startup.periodSeconds=2 \
+    --set ontrack.probes.startup.timeoutSeconds=3 --set ontrack.probes.startup.failureThreshold=4 \
+    --set ontrack.probes.liveness.initialDelaySeconds=5 --set ontrack.probes.liveness.periodSeconds=6 \
+    --set ontrack.probes.liveness.timeoutSeconds=7 --set ontrack.probes.liveness.failureThreshold=8 \
+    --set ontrack.probes.readiness.initialDelaySeconds=9 --set ontrack.probes.readiness.periodSeconds=10 \
+    --set ontrack.probes.readiness.timeoutSeconds=11 --set ontrack.probes.readiness.failureThreshold=12; then
+    assert_equals "startup probe" "$(ontrack_probe startupProbe)" "1/2/3/4"
+    assert_equals "liveness probe" "$(ontrack_probe livenessProbe)" "5/6/7/8"
+    assert_equals "readiness probe" "$(ontrack_probe readinessProbe)" "9/10/11/12"
+fi
+
 if [ $FAILED -eq 1 ]; then
     echo "Some template tests failed."
     exit 1

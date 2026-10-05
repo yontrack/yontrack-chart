@@ -304,23 +304,32 @@ spec:
             httpGet:
               path: /manage/health/readiness
               port: mgt
-            failureThreshold: {{ .Values.ontrack.probes.startup.failureThreshold }}
-            periodSeconds: {{ .Values.ontrack.probes.startup.periodSeconds }}
-            initialDelaySeconds: {{ .Values.ontrack.probes.startup.initialDelaySeconds }}
+            {{- with .Values.ontrack.probes.startup }}
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+            timeoutSeconds: {{ .timeoutSeconds }}
+            failureThreshold: {{ .failureThreshold }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /manage/health/liveness
               port: mgt
-            failureThreshold: 3
-            periodSeconds: 60
-            initialDelaySeconds: 60
+            {{- with .Values.ontrack.probes.liveness }}
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+            timeoutSeconds: {{ .timeoutSeconds }}
+            failureThreshold: {{ .failureThreshold }}
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /manage/health/readiness
               port: mgt
-            failureThreshold: 3
-            periodSeconds: 60
-            initialDelaySeconds: 60
+            {{- with .Values.ontrack.probes.readiness }}
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+            timeoutSeconds: {{ .timeoutSeconds }}
+            failureThreshold: {{ .failureThreshold }}
+            {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
