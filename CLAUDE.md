@@ -72,14 +72,16 @@ Templates exist in pairs for many secrets: a plain Kubernetes secret (`*-secret.
 
 ### CI/CD
 
-`.github/workflows/release.yml` runs on every push to `main`:
+This branch (`v5`) is the 5.x patch line; 6.x is developed on `main`. Fixes needed on both lines land on `main` and are cherry-picked here.
+
+`.github/workflows/release.yml` runs on every push to `v5`:
 1. Prepares Keycloak theme tarball
 2. Lints and validates Docker image availability
 3. Packages the chart
-4. Detects whether `chart.version` changed since the previous run
+4. Checks whether a GitHub release already exists for `chart.version`
 5. If new version: pushes OCI artifact to Docker Hub and creates a GitHub release with a generated changelog
 
-`.yontrack/ci.yaml` configures Yontrack's auto-versioning: when a new Yontrack release is promoted upstream, a PR is automatically opened updating `appVersion` in `Chart.yaml`.
+`.yontrack/ci.yaml` configures Yontrack's auto-versioning: when a new Yontrack 5.5.x release is promoted on the upstream `release/5.5` branch, a PR is automatically opened updating `appVersion` in `Chart.yaml`.
 
 ### Documentation Generation
 
