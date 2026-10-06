@@ -556,6 +556,59 @@ if render_ok \
     assert_equals "readiness probe" "$(ontrack_probe readinessProbe)" "9/10/11/12"
 fi
 
+echo "UI sign-out"
+
+# Environment variables of the UI container whose name matches a regex, as NAME=value
+ui_env() {
+    manifests "select(.kind == \"Deployment\" and (.metadata.name | test(\"-ui$\"))) | .spec.template.spec.containers[] | select(.name == \"yontrack-chart-ui\") | .env[] | select(.name | test(\"$1\")) | .name + \"=\" + .value"
+}
+
+# Renders the NOTES with a client-side install dry-run into $TMP/notes.txt
+render_notes() {
+    if ! helm install ontrack "$CHART" --dry-run=client "$@" > "$TMP/install.txt" 2> "$TMP/err.txt"; then
+        fail "rendering of the notes failed: $(grep -i error "$TMP/err.txt")"
+    fi
+    sed -n '/^NOTES:/,$p' "$TMP/install.txt" > "$TMP/notes.txt"
+    if ! [ -s "$TMP/notes.txt" ]; then
+        fail "no notes rendered"
+    fi
+}
+
+OIDC=(--set auth.kind=oidc --set auth.oidc.issuer=https://idp.example.com --set ontrack.url=https://yontrack.example.com)
+
+test_case "Federated sign-out is enabled by default for OIDC"
+if render_ok "${OIDC[@]}"; then
+    assert_equals "Sign-out env" "$(ui_env 'SIGNOUT')" "NEXTAUTH_FEDERATED_SIGNOUT=true"
+fi
+
+test_case "Federated sign-out can be disabled for OIDC"
+if render_ok "${OIDC[@]}" --set auth.oidc.federatedSignOut=false; then
+    assert_equals "Sign-out env" "$(ui_env 'SIGNOUT')" "NEXTAUTH_FEDERATED_SIGNOUT=false"
+fi
+
+test_case "No federated sign-out setting for Keycloak"
+if render_ok --set auth.oidc.federatedSignOut=false; then
+    assert_equals "Sign-out env" "$(ui_env 'SIGNOUT')" ""
+fi
+
+test_case "The notes name the post-logout redirect URI for OIDC"
+render_notes "${OIDC[@]}"
+if ! grep -qF "https://yontrack.example.com/api/auth/signout-complete" "$TMP/notes.txt"; then
+    fail "post-logout redirect URI not in the notes"
+fi
+
+test_case "No post-logout redirect URI in the notes when federated sign-out is disabled"
+render_notes "${OIDC[@]}" --set auth.oidc.federatedSignOut=false
+if grep -qF "signout-complete" "$TMP/notes.txt"; then
+    fail "post-logout redirect URI in the notes"
+fi
+
+test_case "No post-logout redirect URI in the notes for Keycloak"
+render_notes
+if grep -qF "signout-complete" "$TMP/notes.txt"; then
+    fail "post-logout redirect URI in the notes"
+fi
+
 echo "Keycloak theme"
 
 test_case "The theme archive does not depend on the checkout time, umask or owner (#99)"

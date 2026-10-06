@@ -50,6 +50,8 @@ spec:
               value: {{ .Values.auth.oidc.issuer | quote }}
             - name: NEXTAUTH_SCOPE
               value: {{ .Values.auth.oidc.scope | quote }}
+            - name: NEXTAUTH_FEDERATED_SIGNOUT
+              value: {{ .Values.auth.oidc.federatedSignOut | toString | quote }}
               {{- if .Values.auth.oidc.credentials.secret.enabled }}
             - name: NEXTAUTH_CLIENT_ID
               valueFrom:

@@ -20,3 +20,13 @@
   echo "Visit http://127.0.0.1:8080 to use your application"
   kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8080:$CONTAINER_PORT
 {{- end }}
+{{- if and (eq "oidc" .Values.auth.kind) .Values.auth.oidc.federatedSignOut }}
+
+2. Federated sign-out is enabled (auth.oidc.federatedSignOut). Register this URL at your
+   OIDC provider as a post-logout redirect URI:
+
+  {{ .Values.ontrack.url }}/api/auth/signout-complete
+
+   Until then, users who sign out land on the provider's error page.
+   Set auth.oidc.federatedSignOut=false to sign users out of Yontrack only.
+{{- end }}

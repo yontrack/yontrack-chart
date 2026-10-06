@@ -22,6 +22,17 @@ This action is configured using a `NAMESPACE` value; you can set
 it for example to `https://yontrack.com/oauth2/claim` but any other value 
 is fine. You'll need it later.
 
+## Sign-out
+
+By default (`auth.oidc.federatedSignOut: true`), signing out of Yontrack also ends the Auth0 session.
+In the settings of your Auth0 application, add `<yontrack-root-url>/api/auth/signout-complete`
+to the _Allowed Logout URLs_. Until then, users who sign out land on an Auth0 error page.
+
+Auth0 exposes its `end_session_endpoint` only when _RP-Initiated Logout End Session Endpoint Discovery_
+is enabled in _Settings > Advanced_ of the tenant (it is for tenants created since November 2023).
+
+To sign users out of Yontrack only, set `auth.oidc.federatedSignOut` to `false`.
+
 # Helm chart values
 
 ```yaml
@@ -38,6 +49,8 @@ auth:
     name: <display name for the provider>
     # OIDC issuer URL
     issuer: https://****.auth0.com
+    # Signing out of Yontrack also signs out of Auth0 (see "Sign-out" above)
+    federatedSignOut: true
     # The issuer in Next Auth must not have a trailing slash
     # ... while the one in Spring Boot must...
     trailingSlash: true

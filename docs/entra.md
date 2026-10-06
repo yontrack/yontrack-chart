@@ -3,6 +3,7 @@
 <!-- TOC -->
 * [Application Registration in Entra](#application-registration-in-entra)
 * [Yontrack Configuration](#yontrack-configuration)
+* [Sign-out](#sign-out)
 <!-- TOC -->
 
 ## Application Registration in Entra
@@ -10,6 +11,7 @@
 Register OIDC application in Entra:
 * Use client secret (value to be provided in k8s secret for Yontrack) 
 * Redirect URI: `<yontrack-root-url>/api/auth/callback/oidc`
+* Redirect URI for the sign-out: `<yontrack-root-url>/api/auth/signout-complete` (see [Sign-out](#sign-out))
 * Set version 2 for the access token in the manifest:
 ```json
 {
@@ -97,3 +99,18 @@ ontrack:
 ```
 
 Configure group mapping the usual way, IDP groups will be available exactly as defined in the Entra application. 
+
+## Sign-out
+
+By default (`auth.oidc.federatedSignOut: true`), signing out of Yontrack also signs the browser out of Entra,
+and therefore out of the other Microsoft applications (Outlook, Teams, ...) using the same session.
+Entra only accepts a post-logout redirect URI registered as a redirect URI of the application:
+`<yontrack-root-url>/api/auth/signout-complete`.
+
+To sign users out of Yontrack only, keeping their Entra session:
+
+```yaml
+auth:
+  oidc:
+    federatedSignOut: false
+```
