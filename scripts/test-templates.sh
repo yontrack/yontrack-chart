@@ -565,9 +565,12 @@ ui_env() {
 
 # Renders the NOTES with a client-side install dry-run into $TMP/notes.txt
 render_notes() {
-    helm install ontrack "$CHART" --dry-run=client "$@" 2> "$TMP/err.txt" | sed -n '/^NOTES:/,$p' > "$TMP/notes.txt"
-    if ! [ -s "$TMP/notes.txt" ]; then
+    if ! helm install ontrack "$CHART" --dry-run=client "$@" > "$TMP/install.txt" 2> "$TMP/err.txt"; then
         fail "rendering of the notes failed: $(grep -i error "$TMP/err.txt")"
+    fi
+    sed -n '/^NOTES:/,$p' "$TMP/install.txt" > "$TMP/notes.txt"
+    if ! [ -s "$TMP/notes.txt" ]; then
+        fail "no notes rendered"
     fi
 }
 
