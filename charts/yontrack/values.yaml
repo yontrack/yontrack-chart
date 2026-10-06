@@ -387,6 +387,12 @@ auth:
     issuer: ""
     # -- Trailing slash for the issuer URL (used for Auth0)
     trailingSlash: false
+    # -- Signing out of Yontrack also signs the user out at the provider
+    # (`NEXTAUTH_FEDERATED_SIGNOUT`). This requires `<ontrack.url>/api/auth/signout-complete`
+    # to be registered at the provider as a post-logout redirect URI.
+    # Set to `false` to sign users out of Yontrack only, for example to keep
+    # a provider session shared with other applications.
+    federatedSignOut: true
     # -- Credentials used to contact the OIDC provider
     credentials:
       # -- Either stored in a secret (recommended)
