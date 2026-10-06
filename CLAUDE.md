@@ -86,6 +86,8 @@ Fixes needed on both lines land on `main` and are cherry-picked to `v5` (no forw
 4. Checks whether a GitHub release already exists for `chart.version`
 5. If new version: pushes OCI artifact to Docker Hub and creates a GitHub release with a generated changelog
 
+A merge that leaves `version` unchanged publishes nothing. So every PR that changes what the chart ships (templates, values, files, sub-charts) ends with its own commit, `chore: chart <version>`, that bumps `version` in `Chart.yaml` to the next one on its line (on `main`: `6.0.0-alpha.N` → `6.0.0-alpha.N+1`). In that commit, also run `helm-docs charts/yontrack`, which updates the version badge in `charts/yontrack/README.md`. Changes to docs, scripts or CI alone keep the version.
+
 `.yontrack/ci.yaml` configures Yontrack's auto-versioning: when a Yontrack build on the upstream `main` branch is promoted to `GOLD` (the level at which its images reach Docker Hub), a PR is automatically opened updating `appVersion` in `Chart.yaml`.
 
 ### Documentation Generation
