@@ -20,6 +20,9 @@ helm template ontrack charts/yontrack -f values.yaml > template.yaml
 # Run the template assertions (requires jq and yq)
 ./scripts/test-templates.sh
 
+# Upgrade the previous published chart to this one on a kind cluster (rolling: zero-downtime, under load; default)
+./scripts/upgrade-test.sh rolling
+
 # Validate Docker images referenced in the chart are reachable
 ./scripts/check-images.sh
 

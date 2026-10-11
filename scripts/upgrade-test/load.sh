@@ -1,0 +1,95 @@
+#!/bin/sh
+# Load of the rolling upgrade test (scripts/upgrade-test.sh), run in the cluster, against the services:
+# GraphQL queries and mutations on the backend, GET / on the UI. The GraphQL requests read and create predefined
+# validation stamps: creating a project needs a valid license. Every failed request is logged
+# (FAIL <kind> <code> <detail>) and counted, until /tmp/stop exists. Ends with SUMMARY lines, then DONE.
+
+set -u
+
+SEED=upgrade-test
+
+# Runs a request, with $1 the kind of request and the rest the curl arguments,
+# and sets CODE (HTTP code, 000 on a connection error) and BODY
+request() {
+    kind="$1"
+    shift
+    CODE=$(curl -sS -o "/tmp/$kind.body" -w '%{http_code}' --max-time 10 "$@" 2> "/tmp/$kind.err")
+    BODY="$(cat "/tmp/$kind.body" 2> /dev/null)$(cat "/tmp/$kind.err")"
+}
+
+graphql() {
+    kind="$1"
+    request "$kind" -X POST -H 'Content-Type: application/json' -H "X-Ontrack-Token: $TOKEN" \
+        --data "{\"query\":\"$2\"}" "$BACKEND/graphql"
+}
+
+# Token of the provisioned admin, from the actuator
+TOKEN=""
+for _ in $(seq 1 60); do
+    TOKEN=$(curl -sf --max-time 10 "$MGT/manage/account/$ADMIN" | tr -d '"')
+    [ -n "$TOKEN" ] && break
+    sleep 5
+done
+[ -n "$TOKEN" ] || { echo "ERROR no token"; exit 1; }
+
+# Seeding
+graphql seed "mutation { createPredefinedValidationStamp(input: {name: \\\"$SEED\\\", description: \\\"\\\"}) { predefinedValidationStamp { id } errors { message } } }"
+echo "Seed: $CODE $BODY"
+echo "$BODY" | grep -qF '"predefinedValidationStamp":{"id"' || { echo "ERROR seed"; exit 1; }
+
+# Checks the last request, given the kind, the request number and an expected fragment of the body
+check() {
+    case "$CODE" in
+        2??)
+            if [ -n "$3" ] && ! echo "$BODY" | grep -qF "$3"; then
+                echo "FAIL $1 #$2 $CODE $BODY"
+                return 1
+            fi
+            ;;
+        *)
+            echo "FAIL $1 #$2 $CODE $BODY" | head -c 500
+            echo
+            return 1
+            ;;
+    esac
+}
+
+loop() {
+    kind="$1"
+    ok=0
+    failed=0
+    n=0
+    while [ ! -f /tmp/stop ]; do
+        n=$((n + 1))
+        case "$kind" in
+            query)
+                graphql query "{ predefinedValidationStampByName(name: \\\"$SEED\\\") { id name } }"
+                expected="\"name\":\"$SEED\""
+                ;;
+            mutation)
+                graphql mutation "mutation { createPredefinedValidationStamp(input: {name: \\\"$SEED-$n-$$\\\", description: \\\"\\\"}) { predefinedValidationStamp { id } errors { message } } }"
+                expected='"predefinedValidationStamp":{"id"'
+                ;;
+            ui)
+                request ui "$UI/"
+                expected=""
+                ;;
+        esac
+        if check "$kind" "$n" "$expected"; then
+            ok=$((ok + 1))
+        else
+            failed=$((failed + 1))
+        fi
+        sleep 0.2
+    done
+    echo "SUMMARY $kind ok=$ok failed=$failed"
+}
+
+loop query &
+loop mutation &
+loop ui &
+echo "READY"
+wait
+echo "DONE"
+# Kept alive for the logs to be read
+sleep 3600

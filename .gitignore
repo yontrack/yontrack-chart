@@ -8,3 +8,4 @@ local/
 /net*
 /changelog.md
 .DS_Store
+/build/
