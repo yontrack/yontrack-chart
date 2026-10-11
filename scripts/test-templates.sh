@@ -50,6 +50,16 @@ manifests() {
     yq ea "$1" "$TMP/out.yaml"
 }
 
+# Runs a yq expression on the rendered manifests, printing compact JSON
+manifests_json() {
+    yq ea -o json -I0 "$1" "$TMP/out.yaml"
+}
+
+# Selectors of the Yontrack backend and UI workloads, and of the Yontrack container
+ONTRACK='select(.kind == "Deployment" and .metadata.name == "ontrack-yontrack-chart")'
+UI='select(.kind == "Deployment" and .metadata.name == "ontrack-yontrack-chart-ui")'
+ONTRACK_CONTAINER="$ONTRACK | .spec.template.spec.containers[] | select(.name == \"yontrack-chart\")"
+
 # Extracts the Keycloak realm JSON from the rendered manifests
 realm() {
     manifests 'select(.kind == "ConfigMap" and (.metadata.name | test("-keycloak-settings$"))) | .data["ontrack.json"]'
@@ -371,13 +381,13 @@ echo "Elasticsearch"
 
 # Environment variables of the Yontrack container whose name matches a regex, as NAME=value (or NAME=secret:key)
 ontrack_env() {
-    manifests "select(.kind == \"StatefulSet\") | .spec.template.spec.containers[] | select(.name == \"yontrack-chart\") | .env[] | select(.name | test(\"$1\")) | .name + \"=\" + (.value // (.valueFrom.secretKeyRef.name + \":\" + .valueFrom.secretKeyRef.key))"
+    manifests "$ONTRACK_CONTAINER | .env[] | select(.name | test(\"$1\")) | .name + \"=\" + (.value // (.valueFrom.secretKeyRef.name + \":\" + .valueFrom.secretKeyRef.key))"
 }
 
 test_case "No Elasticsearch by default"
 if render_ok; then
     assert_equals "Elasticsearch resources" "$(manifests 'select(.metadata.name | test("elasticsearch")) | .kind + "/" + .metadata.name')" ""
-    assert_equals "Elasticsearch init containers" "$(manifests 'select(.kind == "StatefulSet") | .spec.template.spec.initContainers[]?.name | select(test("elasticsearch"))')" ""
+    assert_equals "Elasticsearch init containers" "$(manifests "$ONTRACK | .spec.template.spec.initContainers[]?.name | select(test(\"elasticsearch\"))")" ""
     assert_equals "Elasticsearch env" "$(ontrack_env 'ELASTIC')" ""
 fi
 
@@ -533,7 +543,7 @@ echo "Probes"
 
 # Settings of a probe of the Yontrack container, as initialDelaySeconds/periodSeconds/timeoutSeconds/failureThreshold
 ontrack_probe() {
-    manifests "select(.kind == \"StatefulSet\") | .spec.template.spec.containers[] | select(.name == \"yontrack-chart\") | .$1 | [.initialDelaySeconds, .periodSeconds, .timeoutSeconds, .failureThreshold] | join(\"/\")"
+    manifests "$ONTRACK_CONTAINER | .$1 | [.initialDelaySeconds, .periodSeconds, .timeoutSeconds, .failureThreshold] | join(\"/\")"
 }
 
 test_case "Default probes leave enough time for the first start"
@@ -554,6 +564,102 @@ if render_ok \
     assert_equals "startup probe" "$(ontrack_probe startupProbe)" "1/2/3/4"
     assert_equals "liveness probe" "$(ontrack_probe livenessProbe)" "5/6/7/8"
     assert_equals "readiness probe" "$(ontrack_probe readinessProbe)" "9/10/11/12"
+fi
+
+echo "Upgrades"
+
+ZDU=(--set ontrack.zeroDowntimeUpgrades=true)
+ROLLING='{"type":"RollingUpdate","rollingUpdate":{"maxSurge":1,"maxUnavailable":0}}'
+
+# Data volume of the Yontrack backend, as compact JSON
+ontrack_data_volume() {
+    manifests_json "$ONTRACK | .spec.template.spec.volumes[] | select(.name == \"ontrack\")"
+}
+
+# Kind/name of the PVCs of the Yontrack backend
+ontrack_pvc() {
+    manifests 'select(.kind == "PersistentVolumeClaim" and .metadata.name == "ontrack-yontrack-chart") | .kind + "/" + .metadata.name'
+}
+
+test_case "By default, the backend is a Deployment recreated on upgrade, with its data PVC"
+if render_ok; then
+    assert_equals "StatefulSet" "$(manifests 'select(.kind == "StatefulSet" and .metadata.name == "ontrack-yontrack-chart") | .metadata.name')" ""
+    assert_equals "strategy" "$(manifests_json "$ONTRACK | .spec.strategy")" '{"type":"Recreate"}'
+    assert_equals "data volume" "$(ontrack_data_volume)" '{"name":"ontrack","persistentVolumeClaim":{"claimName":"ontrack-yontrack-chart"}}'
+    assert_equals "PVC" "$(ontrack_pvc)" "PersistentVolumeClaim/ontrack-yontrack-chart"
+    assert_equals "preStop" "$(manifests_json "$ONTRACK_CONTAINER | .lifecycle")" "null"
+    assert_equals "termination grace period" "$(manifests "$ONTRACK | .spec.template.spec.terminationGracePeriodSeconds")" "null"
+    assert_equals "readiness success threshold" "$(manifests "$ONTRACK_CONTAINER | .readinessProbe.successThreshold")" "null"
+fi
+
+test_case "By default, the data volume is an emptyDir without persistence"
+if render_ok --set ontrack.persistence.enabled=false; then
+    assert_equals "data volume" "$(ontrack_data_volume)" '{"name":"ontrack","emptyDir":{}}'
+    assert_equals "PVC" "$(ontrack_pvc)" ""
+fi
+
+test_case "Zero-downtime upgrades: rolling update with a surge"
+if render_ok "${ZDU[@]}"; then
+    assert_equals "strategy" "$(manifests_json "$ONTRACK | .spec.strategy")" "$ROLLING"
+fi
+
+test_case "Zero-downtime upgrades: generic ephemeral data volume, whatever the persistence"
+for enabled in true false; do
+    if render_ok "${ZDU[@]}" --set ontrack.persistence.enabled=$enabled; then
+        assert_equals "data volume" "$(ontrack_data_volume)" \
+            '{"name":"ontrack","ephemeral":{"volumeClaimTemplate":{"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"5Gi"}}}}}}'
+        assert_equals "PVC" "$(ontrack_pvc)" ""
+    fi
+done
+
+test_case "Zero-downtime upgrades: the ephemeral data volume follows the persistence size and storage class"
+if render_ok "${ZDU[@]}" --set ontrack.persistence.size=20Gi --set ontrack.persistence.storageClass=fast; then
+    assert_equals "data volume" "$(ontrack_data_volume)" \
+        '{"name":"ontrack","ephemeral":{"volumeClaimTemplate":{"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"20Gi"}},"storageClassName":"fast"}}}}'
+fi
+
+test_case "Zero-downtime upgrades: emptyDir data volume when generic ephemeral volumes are disabled"
+if render_ok "${ZDU[@]}" --set ontrack.persistence.ephemeral.enabled=false --set ontrack.persistence.size=8Gi; then
+    assert_equals "data volume" "$(ontrack_data_volume)" '{"name":"ontrack","emptyDir":{"sizeLimit":"8Gi"}}'
+    assert_equals "ephemeral storage request" "$(manifests "$ONTRACK_CONTAINER | .resources.requests[\"ephemeral-storage\"]")" "8Gi"
+    assert_equals "CPU request" "$(manifests "$ONTRACK_CONTAINER | .resources.requests.cpu")" "800m"
+fi
+
+test_case "Zero-downtime upgrades: no ephemeral storage request with a generic ephemeral volume"
+if render_ok "${ZDU[@]}"; then
+    assert_equals "ephemeral storage request" "$(manifests "$ONTRACK_CONTAINER | .resources.requests[\"ephemeral-storage\"]")" "null"
+fi
+
+test_case "Zero-downtime upgrades: fast readiness, startup and liveness probes unchanged"
+if render_ok "${ZDU[@]}"; then
+    assert_equals "startup probe" "$(ontrack_probe startupProbe)" "30/10/5/36"
+    assert_equals "liveness probe" "$(ontrack_probe livenessProbe)" "60/60/5/3"
+    assert_equals "readiness probe" "$(ontrack_probe readinessProbe)" "0/5/5/2"
+    assert_equals "readiness success threshold" "$(manifests "$ONTRACK_CONTAINER | .readinessProbe.successThreshold")" "1"
+fi
+
+test_case "Zero-downtime upgrades: endpoints are withdrawn before the shutdown"
+if render_ok "${ZDU[@]}"; then
+    assert_equals "preStop" "$(manifests_json "$ONTRACK_CONTAINER | .lifecycle")" '{"preStop":{"exec":{"command":["sleep","10"]}}}'
+    assert_equals "termination grace period" "$(manifests "$ONTRACK | .spec.template.spec.terminationGracePeriodSeconds")" "60"
+fi
+
+test_case "Zero-downtime upgrades need a key store outside the data volume"
+render_fails_with "ontrack.zeroDowntimeUpgrades requires ontrack.config.key_store to be jdbc or secret" "${ZDU[@]}" --set ontrack.config.key_store=file
+for store in jdbc secret; do
+    render_ok "${ZDU[@]}" --set ontrack.config.key_store=$store
+done
+
+test_case "By default, the UI keeps its strategy and probes"
+if render_ok; then
+    assert_equals "strategy" "$(manifests_json "$UI | .spec.strategy")" "null"
+    assert_equals "readiness period" "$(manifests "$UI | .spec.template.spec.containers[0].readinessProbe.periodSeconds")" "20"
+fi
+
+test_case "Zero-downtime upgrades: rolling update and fast readiness for the UI"
+if render_ok "${ZDU[@]}"; then
+    assert_equals "strategy" "$(manifests_json "$UI | .spec.strategy")" "$ROLLING"
+    assert_equals "readiness period" "$(manifests "$UI | .spec.template.spec.containers[0].readinessProbe.periodSeconds")" "5"
 fi
 
 echo "UI sign-out"
