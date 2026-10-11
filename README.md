@@ -978,9 +978,10 @@ helm upgrade --install yontrack oci://registry-1.docker.io/yontrack/yontrack-cha
 
 If the Job fails, a failed contract migration is rolled back and stays pending. Yontrack keeps running on the
 expanded schema, which the new version supports: the application is up, and the next upgrade (or a new sync) retries
-the pending contract migrations. `helm upgrade` reports the failure, and marks the release as failed (with
-`--atomic`, Helm rolls back to the previous version, which also works on the expanded schema). The failed Job is kept
-until the next upgrade, for its logs:
+the pending contract migrations. `helm upgrade` reports the failure, and marks the release as failed. Do not use
+`--atomic` (`--rollback-on-failure`) in this mode: the contract migrations applied before the failing one have already
+dropped what the previous version uses, and rolling back to it would break it. The failed Job is kept until the next
+upgrade, for its logs:
 
 ```bash
 kubectl logs job/<release>-yontrack-chart-contract-migrations
@@ -1155,7 +1156,8 @@ cluster, in both modes (`.github/workflows/upgrade-tests.yml`). The backend imag
 more expand and one more contract migration (`scripts/upgrade-test/`):
 
 * `rolling`: with `ontrack.zeroDowntimeUpgrades: true`, GraphQL queries and mutations on the backend and `GET /` on
-  the UI run during the upgrade. The test fails on any failed request, if the contract migrations Job does not
+  the UI run during the upgrade. They read and create predefined validation stamps: creating a project needs a valid
+  license, and the default evaluation key has expired. The test fails on any failed request, if the contract migrations Job does not
   succeed, or if `schema_version_contract` does not list the contract migration;
 * `default`: the pod comes back, and both migrations ran at startup.
 

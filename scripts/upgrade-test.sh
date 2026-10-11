@@ -11,7 +11,7 @@
 #
 # Environment:
 #   KIND_CLUSTER            kind cluster to use (default: yt-upgrade), created if missing
-#   PREVIOUS_CHART_VERSION  chart to upgrade from (default: the latest GitHub release other than this version)
+#   PREVIOUS_CHART_VERSION  chart to upgrade from (default: the latest GitHub release of the same major, other than this version)
 #   BASE_IMAGE              backend image to add the test migrations to (default: yontrack/yontrack:<appVersion>)
 #   IMAGE_PLATFORM          platform of the test image (default: linux/amd64)
 #   OUT                     directory of the logs and reports (default: build/upgrade-test)
@@ -38,7 +38,10 @@ HELM=(helm --kube-context "kind-$CLUSTER" -n "$NS")
 
 CURRENT=$(yq -r .version "$CHART/Chart.yaml")
 APP_VERSION=$(yq -r .appVersion "$CHART/Chart.yaml")
-PREVIOUS="${PREVIOUS_CHART_VERSION:-$(gh release list --exclude-drafts --limit 50 --json tagName --jq "[.[].tagName | select(. != \"$CURRENT\")][0]")}"
+# Same major only: the other release lines (v5) are published elsewhere, and a major upgrade may have downtime
+MAJOR="${CURRENT%%.*}"
+PREVIOUS="${PREVIOUS_CHART_VERSION:-$(gh release list --exclude-drafts --limit 100 --json tagName --jq "[.[].tagName | select(. != \"$CURRENT\" and startswith(\"$MAJOR.\"))][0]")}"
+[ -n "$PREVIOUS" ] || { echo "No previous $MAJOR.x release" >&2; exit 1; }
 BASE_IMAGE="${BASE_IMAGE:-yontrack/yontrack:$APP_VERSION}"
 # Another repository, same tag: the UI image follows the tag of the backend image
 TEST_REPOSITORY=upgrade-test.local/yontrack
