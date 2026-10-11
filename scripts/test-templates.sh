@@ -672,6 +672,114 @@ if render_ok "${ZDU[@]}"; then
     assert_equals "readiness period" "$(manifests "$UI | .spec.template.spec.containers[0].readinessProbe.periodSeconds")" "5"
 fi
 
+echo "Contract migrations"
+
+CONTRACT_JOB='select(.kind == "Job" and .metadata.name == "ontrack-yontrack-chart-contract-migrations")'
+CONTRACT_POD="$CONTRACT_JOB | .spec.template"
+CONTRACT_CONTAINER="$CONTRACT_POD | .spec.containers[] | select(.name == \"yontrack-chart\")"
+ONTRACK_SERVICE='select(.kind == "Service" and .metadata.name == "ontrack-yontrack-chart")'
+SYNC_WAVE='.metadata.annotations["argocd.argoproj.io/sync-wave"]'
+
+# Environment variable of a container, as NAME=value
+container_env() {
+    manifests "$1 | .env[] | select(.name == \"$2\") | .name + \"=\" + .value"
+}
+
+test_case "By default, the contract migrations run at startup: no hook Job, no deferred mode, no sync waves"
+if render_ok; then
+    assert_equals "Job" "$(manifests "$CONTRACT_JOB | .metadata.name")" ""
+    assert_equals "contract migrations mode" "$(container_env "$ONTRACK_CONTAINER" ONTRACK_CONFIG_DATABASE_CONTRACTMIGRATIONS)" ""
+    assert_equals "backend wave" "$(manifests "$ONTRACK | $SYNC_WAVE")" "null"
+    assert_equals "service wave" "$(manifests "$ONTRACK_SERVICE | $SYNC_WAVE")" "null"
+    assert_equals "UI wave" "$(manifests "$UI | $SYNC_WAVE")" "null"
+fi
+
+test_case "Zero-downtime upgrades: the backend defers the contract migrations"
+if render_ok "${ZDU[@]}"; then
+    assert_equals "contract migrations mode" "$(container_env "$ONTRACK_CONTAINER" ONTRACK_CONFIG_DATABASE_CONTRACTMIGRATIONS)" \
+        "ONTRACK_CONFIG_DATABASE_CONTRACTMIGRATIONS=deferred"
+    assert_equals "run and exit" "$(container_env "$ONTRACK_CONTAINER" ONTRACK_CONFIG_DATABASE_RUNCONTRACTANDEXIT)" ""
+fi
+
+test_case "Zero-downtime upgrades: the contract migrations Job is a Helm and an ArgoCD post-upgrade hook"
+if render_ok "${ZDU[@]}"; then
+    assert_equals "annotations" "$(manifests_json "$CONTRACT_JOB | .metadata.annotations")" \
+        '{"helm.sh/hook":"post-install,post-upgrade","helm.sh/hook-weight":"10","helm.sh/hook-delete-policy":"before-hook-creation,hook-succeeded","argocd.argoproj.io/hook":"PostSync","argocd.argoproj.io/hook-delete-policy":"BeforeHookCreation,HookSucceeded","argocd.argoproj.io/sync-wave":"2"}'
+fi
+
+test_case "Zero-downtime upgrades: the contract migrations Job runs once and exits"
+if render_ok "${ZDU[@]}"; then
+    assert_equals "backoff limit" "$(manifests "$CONTRACT_JOB | .spec.backoffLimit")" "0"
+    assert_equals "deadline" "$(manifests "$CONTRACT_JOB | .spec.activeDeadlineSeconds")" "600"
+    assert_equals "restart policy" "$(manifests "$CONTRACT_POD | .spec.restartPolicy")" "Never"
+    assert_equals "containers" "$(manifests "$CONTRACT_POD | .spec.containers | length")" "1"
+    assert_equals "run and exit" "$(container_env "$CONTRACT_CONTAINER" ONTRACK_CONFIG_DATABASE_RUNCONTRACTANDEXIT)" \
+        "ONTRACK_CONFIG_DATABASE_RUNCONTRACTANDEXIT=true"
+    assert_equals "image" "$(manifests "$CONTRACT_CONTAINER | .image")" "$(manifests "$ONTRACK_CONTAINER | .image")"
+    assert_equals "data volume" "$(manifests_json "$CONTRACT_POD | .spec.volumes[] | select(.name == \"ontrack\")")" '{"name":"ontrack","emptyDir":{}}'
+    assert_equals "probes" "$(manifests_json "$CONTRACT_CONTAINER | [.startupProbe, .livenessProbe, .readinessProbe, .lifecycle]")" "[null,null,null,null]"
+fi
+
+test_case "Zero-downtime upgrades: the deadline of the contract migrations Job is configurable"
+if render_ok "${ZDU[@]}" --set ontrack.contractMigrations.activeDeadlineSeconds=1800; then
+    assert_equals "deadline" "$(manifests "$CONTRACT_JOB | .spec.activeDeadlineSeconds")" "1800"
+fi
+
+test_case "Zero-downtime upgrades: the contract migrations Job has the image, environment, database and secrets of the backend"
+WIRING=(
+    --set image.tag=6.0.42
+    --set ontrack.config.key_store=secret
+    --set ontrack.casc.enabled=true --set ontrack.casc.map=casc-map --set ontrack.casc.secret=casc-secret
+    --set 'ontrack.casc.secrets.names={secret-a,secret-b}'
+    --set ontrack.application_yaml=x
+    --set postgresql.local=false --set postgresql.postgresqlUrl=jdbc:postgresql://db/yontrack
+    --set 'ontrack.extraConfig.secrets={extra-secret}' --set 'ontrack.extraConfig.configmaps={extra-cm}'
+    --set ontrack.envMap.FOO=bar
+    --set 'ontrack.env[0].name=JAVA_TOOL_OPTIONS' --set 'ontrack.env[0].value=-Xmx1g'
+    --set 'extraContainers[0].name=sidecar' --set 'extraContainers[0].image=busybox'
+    --set nodeSelector.pool=yontrack --set 'tolerations[0].key=dedicated'
+    --set serviceAccount.create=true
+)
+if render_ok "${ZDU[@]}" "${WIRING[@]}"; then
+    assert_equals "image" "$(manifests "$CONTRACT_CONTAINER | .image")" "yontrack/yontrack:6.0.42"
+    assert_equals "env" "$(manifests_json "$CONTRACT_CONTAINER | [.env[] | select(.name != \"ONTRACK_CONFIG_DATABASE_RUNCONTRACTANDEXIT\")]")" \
+        "$(manifests_json "$ONTRACK_CONTAINER | .env")"
+    assert_equals "env from" "$(manifests_json "$CONTRACT_CONTAINER | .envFrom")" "$(manifests_json "$ONTRACK_CONTAINER | .envFrom")"
+    assert_equals "volume mounts" "$(manifests_json "$CONTRACT_CONTAINER | .volumeMounts")" "$(manifests_json "$ONTRACK_CONTAINER | .volumeMounts")"
+    assert_equals "volumes" "$(manifests_json "$CONTRACT_POD | [.spec.volumes[] | select(.name != \"ontrack\")]")" \
+        "$(manifests_json "$ONTRACK | [.spec.template.spec.volumes[] | select(.name != \"ontrack\")]")"
+    for field in serviceAccountName securityContext nodeSelector tolerations; do
+        assert_equals "$field" "$(manifests_json "$CONTRACT_POD | .spec.$field")" "$(manifests_json "$ONTRACK | .spec.template.spec.$field")"
+    done
+    assert_equals "containers" "$(manifests "$CONTRACT_POD | [.spec.containers[].name] | join(\",\")")" "yontrack-chart"
+fi
+
+test_case "Zero-downtime upgrades: the pod of the contract migrations Job is not behind the backend services"
+if render_ok "${ZDU[@]}" --set management.service.specific=true; then
+    POD_LABELS=$(manifests_json "$CONTRACT_POD | .metadata.labels")
+    [ -n "$POD_LABELS" ] || fail "no Job pod"
+    for service in ontrack-yontrack-chart ontrack-yontrack-chart-management; do
+        SELECTOR=$(manifests_json "select(.kind == \"Service\" and .metadata.name == \"$service\") | .spec.selector")
+        if [ -n "$SELECTOR" ] && [ "$(jq -n --argjson s "$SELECTOR" --argjson l "$POD_LABELS" '$s | to_entries | all(. as $e | $l[$e.key] == $e.value)')" = "true" ]; then
+            fail "the Job pod ($POD_LABELS) is selected by the $service service ($SELECTOR)"
+        fi
+    done
+fi
+
+test_case "Zero-downtime upgrades: ArgoCD rolls out the backend, then the UI, then runs the contract migrations"
+if render_ok "${ZDU[@]}" --set service.annotations.team=yontrack; then
+    assert_equals "backend wave" "$(manifests "$ONTRACK | $SYNC_WAVE")" "0"
+    assert_equals "service wave" "$(manifests "$ONTRACK_SERVICE | $SYNC_WAVE")" "0"
+    assert_equals "service annotations" "$(manifests "$ONTRACK_SERVICE | .metadata.annotations.team")" "yontrack"
+    assert_equals "UI wave" "$(manifests "$UI | $SYNC_WAVE")" "1"
+    assert_equals "Job wave" "$(manifests "$CONTRACT_JOB | $SYNC_WAVE")" "2"
+fi
+
+test_case "The service annotations are kept by default"
+if render_ok --set service.annotations.team=yontrack; then
+    assert_equals "service annotations" "$(manifests_json "$ONTRACK_SERVICE | .metadata.annotations")" '{"team":"yontrack"}'
+fi
+
 echo "UI sign-out"
 
 # Environment variables of the UI container whose name matches a regex, as NAME=value

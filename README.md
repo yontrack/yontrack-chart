@@ -952,6 +952,64 @@ kubectl delete pvc <release>-yontrack-chart
 > With a GitOps tool rendering the chart without access to the cluster (ArgoCD), the PVC is no longer rendered
 > and is pruned (or left out of sync) according to the settings of the tool.
 
+## Contract migrations
+
+Yontrack migrates its database in two phases. The _expand_ migrations are compatible with the previous version, and
+run when the new pods start, while the old ones still serve. The _contract_ migrations (drops, deletions) would break
+the previous version: in this mode, the backend defers them (`contract-migrations: deferred`), and they run once the
+previous version is gone, in a hook Job, `<release>-yontrack-chart-contract-migrations`. It starts the backend image,
+with the environment, database and secrets of the backend, runs the pending contract migrations, and exits.
+It is failed after `ontrack.contractMigrations.activeDeadlineSeconds` (600 s by default).
+
+With the default mode, nothing changes: the backend runs both phases at startup, and there is no Job.
+
+The Job is a `post-install,post-upgrade` Helm hook, and an ArgoCD `PostSync` hook:
+
+* with `helm upgrade`, use `--wait`: Helm then runs the hook once the rollout is done. Without it, the hook runs as soon
+  as the manifests are applied, while the previous pods may still be running, and break them.
+
+```bash
+helm upgrade --install yontrack oci://registry-1.docker.io/yontrack/yontrack-chart --wait --timeout 15m ...
+```
+
+* under ArgoCD, nothing to do: the `PostSync` hook runs once the synced resources are healthy. The ArgoCD
+  annotations are on the rendered Job, so this also works with manifests rendered outside of ArgoCD
+  (`helm template`, `helmfile template`), and synced as plain manifests.
+
+If the Job fails, a failed contract migration is rolled back and stays pending. Yontrack keeps running on the
+expanded schema, which the new version supports: the application is up, and the next upgrade (or a new sync) retries
+the pending contract migrations. `helm upgrade` reports the failure, and marks the release as failed (with
+`--atomic`, Helm rolls back to the previous version, which also works on the expanded schema). The failed Job is kept
+until the next upgrade, for its logs:
+
+```bash
+kubectl logs job/<release>-yontrack-chart-contract-migrations
+```
+
+The contract migrations which ran are recorded in the `schema_version_contract` table, as the expand ones are in
+`schema_version`:
+
+```sql
+select version, description, installed_on, success
+from schema_version_contract
+order by installed_rank;
+```
+
+> The Job needs Yontrack 6.0 or later: earlier versions have no contract migrations.
+
+## Rollout order
+
+A new UI may rely on what only a new backend provides, while an old UI works with a new backend. The backend must
+therefore be rolled out first:
+
+* under ArgoCD, the sync waves take care of it: the backend `Deployment` and its `Service` are in wave `0`,
+  the UI `Deployment` in wave `1`, and the contract migrations Job runs after both;
+* outside ArgoCD, `helm upgrade` rolls the two Deployments out together. The new UI pods take some time to be
+  ready, and an old UI calling a new backend is the supported direction, but a new UI pod may briefly reach an old
+  backend pod.
+
+Users with a page open keep the old UI in their browser until they reload it.
+
 # Upgrading to 6.x
 
 Chart 6.x installs Yontrack 6, which no longer needs Elasticsearch: the chart does not deploy it anymore.
@@ -996,6 +1054,7 @@ kubectl delete pvc data-<release>-elasticsearch-master-0
 * [Evidence upload paths](#evidence-upload-size) in their own Ingress, with a body size following `auditTrail.storage.maxSize`
 * [Audit trail instance key](#audit-trail-instance-key) mapped from the external secret store with `ontrack.config.secret_key_store.external.auditTrail`
 * Yontrack backend as a `Deployment`, with optional [zero-downtime upgrades](#zero-downtime-upgrades) (`ontrack.zeroDowntimeUpgrades`)
+* [Contract migrations](#contract-migrations) in a post-upgrade hook Job, and [rollout order](#rollout-order) under ArgoCD, for zero-downtime upgrades
 * See [Upgrading to 6.x](#upgrading-to-6x)
 
 ## 1.0
@@ -1088,6 +1147,26 @@ are run by the CI and can be run locally (requires `helm`, `jq` and `yq`):
 ```bash
 ./scripts/test-templates.sh
 ```
+
+## Upgrade tests
+
+The CI upgrades the previous published chart to the chart of the commit on a [kind](https://kind.sigs.k8s.io/)
+cluster, in both modes (`.github/workflows/upgrade-tests.yml`). The backend image is the one of the chart, with one
+more expand and one more contract migration (`scripts/upgrade-test/`):
+
+* `rolling`: with `ontrack.zeroDowntimeUpgrades: true`, GraphQL queries and mutations on the backend and `GET /` on
+  the UI run during the upgrade. The test fails on any failed request, if the contract migrations Job does not
+  succeed, or if `schema_version_contract` does not list the contract migration;
+* `default`: the pod comes back, and both migrations ran at startup.
+
+To run them locally (requires `docker`, `kind`, `kubectl`, `helm`, `yq` and `gh`):
+
+```bash
+./scripts/upgrade-test.sh rolling
+```
+
+The kind cluster (`yt-upgrade`) is created if missing, and kept. `PREVIOUS_CHART_VERSION` and `BASE_IMAGE` change the
+chart to upgrade from and the backend image under test.
 
 ## Documentation generation
 

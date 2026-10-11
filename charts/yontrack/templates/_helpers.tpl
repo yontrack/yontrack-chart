@@ -73,6 +73,20 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
 {{/*
+Common labels for the contract migrations Job
+*/}}
+{{- define "ontrack.labels.contractMigrations" -}}
+{{- if .Values.includeVersionLabels }}
+helm.sh/chart: {{ include "ontrack.chart" . }}
+{{- end }}
+{{ include "ontrack.selectorLabels.contractMigrations" . }}
+{{- if and .Chart.AppVersion .Values.includeVersionLabels }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
 Common labels for Keycloak
 */}}
 {{- define "ontrack.labels.keycloak" -}}
@@ -135,6 +149,14 @@ Selector labels for UI
 */}}
 {{- define "ontrack.selectorLabels.ui" -}}
 app.kubernetes.io/name: {{ include "ontrack.name" . }}-ui
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+Selector labels for the contract migrations Job: never those of the backend, whose services must not reach its pod
+*/}}
+{{- define "ontrack.selectorLabels.contractMigrations" -}}
+app.kubernetes.io/name: {{ include "ontrack.name" . }}-contract-migrations
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 

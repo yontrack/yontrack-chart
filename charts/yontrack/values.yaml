@@ -154,8 +154,14 @@ ontrack:
   # (`ontrack.config.key_store`). `ontrack.persistence.enabled` is ignored: the pod gets its own ephemeral data volume,
   # sized by `ontrack.persistence.size` (see `ontrack.persistence.ephemeral.enabled`). The readiness probe runs every
   # 5 s with a failure threshold of 2 (only `ontrack.probes.readiness.timeoutSeconds` is used), the pod waits 10 s
-  # before stopping and has 60 s to terminate.
+  # before stopping and has 60 s to terminate. The contract migrations (destructive schema changes) are deferred, and run
+  # by a post-install/post-upgrade hook Job once the rollout is done: `helm upgrade` needs `--wait`. Under ArgoCD, the
+  # backend rolls out first (sync wave 0), then the UI (wave 1), then the hook Job (`PostSync`).
   zeroDowntimeUpgrades: false
+  # Hook Job running the contract migrations after the rollout, when `ontrack.zeroDowntimeUpgrades` is `true`
+  contractMigrations:
+    # -- Maximum duration of the contract migrations Job, in seconds (`activeDeadlineSeconds`). It is failed past it.
+    activeDeadlineSeconds: 600
   # Next UI setup
   ui:
     # -- Number of replicas for the UI (experimental, unless `ontrack.zeroDowntimeUpgrades` is `true`)
