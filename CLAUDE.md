@@ -51,7 +51,7 @@ The root-level `values.yaml` is a local override file (gitignored) used for loca
 
 | Component | Template prefix | Notes |
 |-----------|----------------|-------|
-| Yontrack backend | `ontrack-*` | StatefulSet with PVC for data |
+| Yontrack backend | `ontrack-*` | Deployment; PVC for data, or an ephemeral volume with `ontrack.zeroDowntimeUpgrades` |
 | Next.js UI | `ui-*` | Frontend, uses NextAuth |
 | PostgreSQL | sub-chart | Yontrack's main database |
 | RabbitMQ | sub-chart | Messaging |

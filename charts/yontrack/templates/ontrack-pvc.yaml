@@ -1,16 +1,42 @@
-{{- if .Values.ontrack.persistence.enabled }}
+{{- /*
+With zero-downtime upgrades, the data volume is ephemeral and the PVC is no longer used. A PVC created by this
+release in the default mode is still rendered, but kept by Helm, so that switching the mode does not delete it:
+the operator removes it. Not found when rendering without a cluster (helm template, ArgoCD).
+*/}}
+{{- $keep := false }}
+{{- $existing := dict }}
+{{- if .Values.ontrack.zeroDowntimeUpgrades }}
+{{- $existing = lookup "v1" "PersistentVolumeClaim" .Release.Namespace (include "ontrack.fullname" .) }}
+{{- $keep = eq (dig "metadata" "annotations" "meta.helm.sh/release-name" "" $existing) .Release.Name }}
+{{- end }}
+{{- if or $keep (and .Values.ontrack.persistence.enabled (not .Values.ontrack.zeroDowntimeUpgrades)) }}
+{{- $annotations := deepCopy (.Values.ontrack.persistence.annotations | default (dict)) }}
+{{- if $keep }}
+{{- $_ := set $annotations "helm.sh/resource-policy" "keep" }}
+{{- end }}
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
   name: {{ include "ontrack.fullname" . }}
   labels:
     {{- include "ontrack.labels" . | nindent 4 }}
-{{ if .Values.ontrack.persistence.annotations}}
+{{- if $annotations }}
   annotations:
-    {{- range $key, $value := .Values.ontrack.persistence.annotations }}
+    {{- range $key, $value := $annotations }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
 {{- end }}
+{{- if $keep }}
+{{- /* As it is: persistence.size now sizes the ephemeral volume, and a PVC cannot shrink */}}
+spec:
+  accessModes: {{ toYaml $existing.spec.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ $existing.spec.resources.requests.storage | quote }}
+{{- if hasKey $existing.spec "storageClassName" }}
+  storageClassName: {{ $existing.spec.storageClassName | quote }}
+{{- end }}
+{{- else }}
 spec:
   accessModes:
     - {{ .Values.ontrack.persistence.accessMode | quote }}
@@ -22,6 +48,7 @@ spec:
   storageClassName: ""
 {{- else }}
   storageClassName: "{{ .Values.ontrack.persistence.storageClass }}"
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

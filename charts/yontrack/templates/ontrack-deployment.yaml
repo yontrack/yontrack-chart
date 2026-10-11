@@ -1,12 +1,24 @@
 {{- include "ontrack.elasticsearch.validate" . }}
+{{- include "ontrack.upgrades.validate" . }}
+{{- $zdu := .Values.ontrack.zeroDowntimeUpgrades }}
+{{- $useEmptyDir := and $zdu (not .Values.ontrack.persistence.ephemeral.enabled) }}
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: {{ include "ontrack.fullname" . }}
   labels:
     {{- include "ontrack.labels" . | nindent 4 }}
 spec:
-  serviceName: ontrack
+  strategy:
+    {{- if $zdu }}
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    {{- else }}
+    # One pod at a time on the data PVC
+    type: Recreate
+    {{- end }}
   selector:
     matchLabels:
       {{- include "ontrack.selectorLabels" . | nindent 6 }}
@@ -22,6 +34,10 @@ spec:
       serviceAccountName: {{ include "ontrack.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if $zdu }}
+      # Longer than the graceful shutdown phase of Yontrack (45 s), after the preStop delay
+      terminationGracePeriodSeconds: 60
+      {{- end }}
       containers:
       {{- if .Values.extraContainers }}
         {{- toYaml .Values.extraContainers | nindent 8 }}
@@ -299,7 +315,18 @@ spec:
             - name: mgt
               containerPort: 8800
               protocol: TCP
-          resources: {{ toYaml .Values.ontrack.resources | nindent 12 }}
+          {{- $resources := deepCopy (.Values.ontrack.resources | default (dict)) }}
+          {{- if $useEmptyDir }}
+          {{- $_ := set $resources "requests" (merge (dict "ephemeral-storage" .Values.ontrack.persistence.size) ($resources.requests | default (dict))) }}
+          {{- end }}
+          resources: {{ toYaml $resources | nindent 12 }}
+          {{- if $zdu }}
+          lifecycle:
+            # Lets the endpoints be withdrawn before Yontrack stops accepting connections
+            preStop:
+              exec:
+                command: ["sleep", "10"]
+          {{- end }}
           startupProbe:
             httpGet:
               path: /manage/health/readiness
@@ -324,11 +351,20 @@ spec:
             httpGet:
               path: /manage/health/readiness
               port: mgt
+            {{- if $zdu }}
+            # Gated by the startup probe; the pod is withdrawn from the service within 10 s
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            timeoutSeconds: {{ dig "timeoutSeconds" 5 (.Values.ontrack.probes.readiness | default (dict)) }}
+            failureThreshold: 2
+            successThreshold: 1
+            {{- else }}
             {{- with .Values.ontrack.probes.readiness }}
             initialDelaySeconds: {{ .initialDelaySeconds }}
             periodSeconds: {{ .periodSeconds }}
             timeoutSeconds: {{ .timeoutSeconds }}
             failureThreshold: {{ .failureThreshold }}
+            {{- end }}
             {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
@@ -344,7 +380,27 @@ spec:
       {{- end }}
       volumes:
         - name: ontrack
-          {{- if .Values.ontrack.persistence.enabled }}
+          {{- if $useEmptyDir }}
+          emptyDir:
+            sizeLimit: {{ .Values.ontrack.persistence.size | quote }}
+          {{- else if $zdu }}
+          # One volume per pod, deleted with it: it only holds Git clones
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: {{ .Values.ontrack.persistence.size | quote }}
+                {{- if .Values.ontrack.persistence.storageClass }}
+                {{- if (eq "-" .Values.ontrack.persistence.storageClass) }}
+                storageClassName: ""
+                {{- else }}
+                storageClassName: "{{ .Values.ontrack.persistence.storageClass }}"
+                {{- end }}
+                {{- end }}
+          {{- else if .Values.ontrack.persistence.enabled }}
           persistentVolumeClaim:
             claimName: {{ include "ontrack.fullname" . }}
           {{- else }}

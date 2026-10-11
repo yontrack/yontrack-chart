@@ -366,6 +366,15 @@ Fails for 5.x values still expecting a bundled cluster.
 {{- end }}
 
 {{/*
+Zero-downtime upgrades: the data volume is ephemeral, so nothing which must survive a rollout can be stored on it.
+*/}}
+{{- define "ontrack.upgrades.validate" -}}
+{{- if and .Values.ontrack.zeroDowntimeUpgrades (eq .Values.ontrack.config.key_store "file") }}
+  {{- fail "ontrack.zeroDowntimeUpgrades requires ontrack.config.key_store to be jdbc or secret: the file key store lives on the data volume, which is ephemeral in this mode." }}
+{{- end }}
+{{- end }}
+
+{{/*
 Name of the resources of the bundled MinIO
 */}}
 {{- define "ontrack.minio.fullname" -}}

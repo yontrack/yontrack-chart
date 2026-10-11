@@ -6,6 +6,13 @@ metadata:
     {{- include "ontrack.labels.ui" . | nindent 4 }}
 spec:
   replicas: {{ .Values.ontrack.ui.replicas }}
+  {{- if .Values.ontrack.zeroDowntimeUpgrades }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  {{- end }}
   selector:
     matchLabels:
       {{- include "ontrack.selectorLabels.ui" . | nindent 6 }}
@@ -132,7 +139,7 @@ spec:
               path: "/api/health"
               port: 3000
             failureThreshold: 6
-            periodSeconds: 20
+            periodSeconds: {{ .Values.ontrack.zeroDowntimeUpgrades | ternary 5 20 }}
             initialDelaySeconds: 5
       {{- with .Values.nodeSelector }}
       nodeSelector:

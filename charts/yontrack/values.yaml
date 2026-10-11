@@ -148,9 +148,17 @@ ontrack:
   profiles: prod
   # -- Application configuration file as a YAML content
   application_yaml: ""
+  # -- Upgrade mode.
+  # `false` (default): one pod, the data PVC, the pod is restarted on upgrade.
+  # `true`: rolling update without downtime, for the backend and the UI. Requires a `jdbc` or `secret` key store
+  # (`ontrack.config.key_store`). `ontrack.persistence.enabled` is ignored: the pod gets its own ephemeral data volume,
+  # sized by `ontrack.persistence.size` (see `ontrack.persistence.ephemeral.enabled`). The readiness probe runs every
+  # 5 s with a failure threshold of 2 (only `ontrack.probes.readiness.timeoutSeconds` is used), the pod waits 10 s
+  # before stopping and has 60 s to terminate.
+  zeroDowntimeUpgrades: false
   # Next UI setup
   ui:
-    # -- Number of replicas for the UI (experimental)
+    # -- Number of replicas for the UI (experimental, unless `ontrack.zeroDowntimeUpgrades` is `true`)
     replicas: 1
     # -- Image to use for the UI
     image: yontrack/yontrack-ui
@@ -222,20 +230,27 @@ ontrack:
   podAnnotations: { }
   # Persistence configuration
   persistence:
-    # -- Enabling the persistent storage
+    # -- Enabling the persistent storage (ignored when `ontrack.zeroDowntimeUpgrades` is `true`)
     enabled: true
     # -- Set annotations on pvc
     annotations: { }
     # -- PVC access mode
     accessMode: ReadWriteOnce
-    # -- PVC initial size
+    # -- PVC initial size (also the size of the ephemeral data volume when `ontrack.zeroDowntimeUpgrades` is `true`)
     size: 5Gi
     # -- If defined, storageClassName: <storageClass>
     # If set to "-", storageClassName: "", which disables dynamic provisioning
     # If undefined (the default) or set to null, no storageClassName spec is
     #   set, choosing the default provisioner.  (gp2 on AWS, standard on
     #   GKE, AWS & OpenStack)
+    # Also used by the generic ephemeral volume when `ontrack.zeroDowntimeUpgrades` is `true`.
     storageClass:
+    # Data volume when `ontrack.zeroDowntimeUpgrades` is `true`. It only holds Git clones, re-created after each rollout.
+    ephemeral:
+      # -- `true`: a generic ephemeral volume (one PVC per pod, deleted with the pod, Kubernetes >= 1.23),
+      # sized by `ontrack.persistence.size`, with `ontrack.persistence.storageClass`.
+      # `false`: an `emptyDir` limited to `ontrack.persistence.size`, requested as ephemeral storage on the node.
+      enabled: true
   # Yontrack configuration properties
   config:
     # -- Using the database to store the key by default

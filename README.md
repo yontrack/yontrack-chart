@@ -43,6 +43,7 @@ This Helm chart is compatible with Helm 3 and allows the installation of Yontrac
   * [Using an external secret for the decryption key](#using-an-external-secret-for-the-decryption-key)
 * [OpenShift support](#openshift-support)
 * [GitOps / rendered manifests](#gitops--rendered-manifests)
+* [Zero-downtime upgrades](#zero-downtime-upgrades)
 * [Upgrading to 6.x](#upgrading-to-6x)
 * [Change log](#change-log)
   * [6.0](#60)
@@ -911,6 +912,46 @@ to re-enable them (useful for observability tooling that relies on these labels 
 includeVersionLabels: true
 ```
 
+# Zero-downtime upgrades
+
+By default, the Yontrack backend runs as one pod using a data PVC, and is restarted on upgrade: Yontrack is
+unavailable for the whole restart, migrations included.
+
+To upgrade Yontrack (within a major version) without downtime, set:
+
+```yaml
+ontrack:
+  zeroDowntimeUpgrades: true
+```
+
+The backend and the UI are then rolled out one new pod at a time (`maxSurge: 1`, `maxUnavailable: 0`): the old pods
+serve the requests until the new ones are ready. The readiness probe of the backend runs every 5 s, so that a pod is
+withdrawn from the service within 10 s, and a stopping pod waits 10 s (`preStop`) before shutting down, then gets
+60 s to finish its requests. Only `ontrack.probes.readiness.timeoutSeconds` is used in this mode.
+
+Requirements:
+
+* the encryption keys must not be stored on the data volume: `ontrack.config.key_store` must be `jdbc` (the default)
+  or [`secret`](#using-a-k8s-secret-for-the-encryption-keys). Rendering fails with `file`.
+* the data volume is a [generic ephemeral volume](https://kubernetes.io/docs/concepts/storage/ephemeral-volumes/#generic-ephemeral-volumes):
+  a PVC per pod, created and deleted with it, sized by `ontrack.persistence.size`, using `ontrack.persistence.storageClass`.
+  It needs Kubernetes 1.23 or later (OpenShift 4.11 or later, where the `restricted-v2` SCC allows `ephemeral` volumes).
+  If generic ephemeral volumes are not available, set `ontrack.persistence.ephemeral.enabled: false` to use an
+  `emptyDir` limited to `ontrack.persistence.size` instead, requested as ephemeral storage on the node.
+
+`ontrack.persistence.enabled` is ignored in this mode: the data volume only holds clones of the Git repositories,
+which Yontrack clones again after each rollout. Expect some extra load on the Git servers after each upgrade.
+
+When switching an existing installation to this mode, its `<release>-yontrack-chart` PVC is no longer used, but is left
+in place by Helm (it is annotated with `helm.sh/resource-policy: keep`). Delete it once the switch is done:
+
+```bash
+kubectl delete pvc <release>-yontrack-chart
+```
+
+> With a GitOps tool rendering the chart without access to the cluster (ArgoCD), the PVC is no longer rendered
+> and is pruned (or left out of sync) according to the settings of the tool.
+
 # Upgrading to 6.x
 
 Chart 6.x installs Yontrack 6, which no longer needs Elasticsearch: the chart does not deploy it anymore.
@@ -928,6 +969,10 @@ kubectl delete pvc data-<release>-elasticsearch-master-0
 ```
 
 * With a [managed database](#using-a-managed-database), check the `pg_trgm` prerequisite.
+* The Yontrack backend is now a `Deployment` instead of a `StatefulSet` (see [Zero-downtime upgrades](#zero-downtime-upgrades)).
+  Upgrading from an earlier chart deletes the `StatefulSet` and creates the `Deployment`: Yontrack restarts once, whatever
+  the value of `ontrack.zeroDowntimeUpgrades`. With the default mode, the existing `<release>-yontrack-chart` PVC is reused.
+  With `ontrack.zeroDowntimeUpgrades: true`, it is left in place, for you to delete.
 * The legacy `oci://registry-1.docker.io/nemerosa/yontrack-chart` location only receives 5.x versions.
 
 # Change log
@@ -950,6 +995,7 @@ kubectl delete pvc data-<release>-elasticsearch-master-0
 * [Audit trail evidence storage](#audit-trail-evidence-storage), with an optional bundled MinIO-compatible storage
 * [Evidence upload paths](#evidence-upload-size) in their own Ingress, with a body size following `auditTrail.storage.maxSize`
 * [Audit trail instance key](#audit-trail-instance-key) mapped from the external secret store with `ontrack.config.secret_key_store.external.auditTrail`
+* Yontrack backend as a `Deployment`, with optional [zero-downtime upgrades](#zero-downtime-upgrades) (`ontrack.zeroDowntimeUpgrades`)
 * See [Upgrading to 6.x](#upgrading-to-6x)
 
 ## 1.0

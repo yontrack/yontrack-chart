@@ -1,6 +1,6 @@
 # yontrack-chart
 
-![Version: 6.0.0-alpha.7](https://img.shields.io/badge/Version-6.0.0--alpha.7-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0-alpha.0](https://img.shields.io/badge/AppVersion-6.0--alpha.0-informational?style=flat-square)
+![Version: 6.0.0-alpha.8](https://img.shields.io/badge/Version-6.0.0--alpha.8-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0-beta.4-rc-680](https://img.shields.io/badge/AppVersion-6.0--beta.4--rc--680-informational?style=flat-square)
 
 A Helm chart for Kubernetes
 
@@ -318,9 +318,10 @@ A Helm chart for Kubernetes
 | ontrack.management.metrics.tags.application | string | `"ontrack"` | Application tag to add to all exposed metrics |
 | ontrack.persistence.accessMode | string | `"ReadWriteOnce"` | PVC access mode |
 | ontrack.persistence.annotations | object | `{}` | Set annotations on pvc |
-| ontrack.persistence.enabled | bool | `true` | Enabling the persistent storage |
-| ontrack.persistence.size | string | `"5Gi"` | PVC initial size |
-| ontrack.persistence.storageClass | string | `nil` | If defined, storageClassName: <storageClass> If set to "-", storageClassName: "", which disables dynamic provisioning If undefined (the default) or set to null, no storageClassName spec is   set, choosing the default provisioner.  (gp2 on AWS, standard on   GKE, AWS & OpenStack) |
+| ontrack.persistence.enabled | bool | `true` | Enabling the persistent storage (ignored when `ontrack.zeroDowntimeUpgrades` is `true`) |
+| ontrack.persistence.ephemeral.enabled | bool | `true` | `true`: a generic ephemeral volume (one PVC per pod, deleted with the pod, Kubernetes >= 1.23), sized by `ontrack.persistence.size`, with `ontrack.persistence.storageClass`. `false`: an `emptyDir` limited to `ontrack.persistence.size`, requested as ephemeral storage on the node. |
+| ontrack.persistence.size | string | `"5Gi"` | PVC initial size (also the size of the ephemeral data volume when `ontrack.zeroDowntimeUpgrades` is `true`) |
+| ontrack.persistence.storageClass | string | `nil` | If defined, storageClassName: <storageClass> If set to "-", storageClassName: "", which disables dynamic provisioning If undefined (the default) or set to null, no storageClassName spec is   set, choosing the default provisioner.  (gp2 on AWS, standard on   GKE, AWS & OpenStack) Also used by the generic ephemeral volume when `ontrack.zeroDowntimeUpgrades` is `true`. |
 | ontrack.podAnnotations | object | `{}` | Annotations for the Yontrack pod |
 | ontrack.probes | object | `{"liveness":{"failureThreshold":3,"initialDelaySeconds":60,"periodSeconds":60,"timeoutSeconds":5},"readiness":{"failureThreshold":3,"initialDelaySeconds":60,"periodSeconds":60,"timeoutSeconds":5},"startup":{"failureThreshold":36,"initialDelaySeconds":30,"periodSeconds":10,"timeoutSeconds":5}}` | Probes configuration |
 | ontrack.probes.liveness | object | `{"failureThreshold":3,"initialDelaySeconds":60,"periodSeconds":60,"timeoutSeconds":5}` | Liveness probe configuration |
@@ -346,7 +347,7 @@ A Helm chart for Kubernetes
 | ontrack.ui.config.customSignin | bool | `true` | Using the custom signin page |
 | ontrack.ui.image | string | `"yontrack/yontrack-ui"` | Image to use for the UI |
 | ontrack.ui.podAnnotations | object | `{}` | Annotations for the Yontrack UI pod |
-| ontrack.ui.replicas | int | `1` | Number of replicas for the UI (experimental) |
+| ontrack.ui.replicas | int | `1` | Number of replicas for the UI (experimental, unless `ontrack.zeroDowntimeUpgrades` is `true`) |
 | ontrack.ui.resources | object | `{"limits":{"cpu":"800m","memory":"1Gi"},"requests":{"cpu":"800m","memory":"1Gi"}}` | Next UI resources |
 | ontrack.ui.resources.limits.cpu | string | `"800m"` | Next UI resources |
 | ontrack.ui.resources.limits.memory | string | `"1Gi"` | Next UI resources |
@@ -354,6 +355,7 @@ A Helm chart for Kubernetes
 | ontrack.ui.resources.requests.memory | string | `"1Gi"` | Next UI resources |
 | ontrack.ui.service.port | int | `3000` | Exposed port for the Yontrack IO |
 | ontrack.url | string | `"http://localhost:3000"` | Yontrack root URL - must point to the UI service |
+| ontrack.zeroDowntimeUpgrades | bool | `false` | Upgrade mode. `false` (default): one pod, the data PVC, the pod is restarted on upgrade. `true`: rolling update without downtime, for the backend and the UI. Requires a `jdbc` or `secret` key store (`ontrack.config.key_store`). `ontrack.persistence.enabled` is ignored: the pod gets its own ephemeral data volume, sized by `ontrack.persistence.size` (see `ontrack.persistence.ephemeral.enabled`). The readiness probe runs every 5 s with a failure threshold of 2 (only `ontrack.probes.readiness.timeoutSeconds` is used), the pod waits 10 s before stopping and has 60 s to terminate. |
 | openshift | object | `{"enabled":false}` | Configuration for OpenShift |
 | openshift.enabled | bool | `false` | Whether to enable OpenShift specific resources (like Routes) |
 | podAnnotations | object | `{}` | Annotations for all pods |
