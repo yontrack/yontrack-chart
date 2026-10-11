@@ -1,7 +1,7 @@
 {{- include "ontrack.elasticsearch.validate" . }}
 {{- include "ontrack.upgrades.validate" . }}
 {{- $zdu := .Values.ontrack.zeroDowntimeUpgrades }}
-{{- $emptyDir := and $zdu (not .Values.ontrack.persistence.ephemeral.enabled) }}
+{{- $useEmptyDir := and $zdu (not .Values.ontrack.persistence.ephemeral.enabled) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -316,7 +316,7 @@ spec:
               containerPort: 8800
               protocol: TCP
           {{- $resources := deepCopy (.Values.ontrack.resources | default (dict)) }}
-          {{- if $emptyDir }}
+          {{- if $useEmptyDir }}
           {{- $_ := set $resources "requests" (merge (dict "ephemeral-storage" .Values.ontrack.persistence.size) ($resources.requests | default (dict))) }}
           {{- end }}
           resources: {{ toYaml $resources | nindent 12 }}
@@ -351,15 +351,15 @@ spec:
             httpGet:
               path: /manage/health/readiness
               port: mgt
-            {{- with .Values.ontrack.probes.readiness }}
             {{- if $zdu }}
             # Gated by the startup probe; the pod is withdrawn from the service within 10 s
             initialDelaySeconds: 0
             periodSeconds: 5
-            timeoutSeconds: {{ .timeoutSeconds }}
+            timeoutSeconds: {{ dig "timeoutSeconds" 5 (.Values.ontrack.probes.readiness | default (dict)) }}
             failureThreshold: 2
             successThreshold: 1
             {{- else }}
+            {{- with .Values.ontrack.probes.readiness }}
             initialDelaySeconds: {{ .initialDelaySeconds }}
             periodSeconds: {{ .periodSeconds }}
             timeoutSeconds: {{ .timeoutSeconds }}
@@ -380,7 +380,7 @@ spec:
       {{- end }}
       volumes:
         - name: ontrack
-          {{- if $emptyDir }}
+          {{- if $useEmptyDir }}
           emptyDir:
             sizeLimit: {{ .Values.ontrack.persistence.size | quote }}
           {{- else if $zdu }}
@@ -393,8 +393,12 @@ spec:
                 resources:
                   requests:
                     storage: {{ .Values.ontrack.persistence.size | quote }}
-                {{- with .Values.ontrack.persistence.storageClass }}
-                storageClassName: {{ eq "-" . | ternary "" . | quote }}
+                {{- if .Values.ontrack.persistence.storageClass }}
+                {{- if (eq "-" .Values.ontrack.persistence.storageClass) }}
+                storageClassName: ""
+                {{- else }}
+                storageClassName: "{{ .Values.ontrack.persistence.storageClass }}"
+                {{- end }}
                 {{- end }}
           {{- else if .Values.ontrack.persistence.enabled }}
           persistentVolumeClaim:

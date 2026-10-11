@@ -152,8 +152,9 @@ ontrack:
   # `false` (default): one pod, the data PVC, the pod is restarted on upgrade.
   # `true`: rolling update without downtime, for the backend and the UI. Requires a `jdbc` or `secret` key store
   # (`ontrack.config.key_store`). `ontrack.persistence.enabled` is ignored: the pod gets its own ephemeral data volume,
-  # sized by `ontrack.persistence.size` (see `ontrack.persistence.ephemeral.enabled`). The readiness probe settings are
-  # replaced by a 5 s period and a failure threshold of 2, the pod waits 10 s before stopping and has 60 s to terminate.
+  # sized by `ontrack.persistence.size` (see `ontrack.persistence.ephemeral.enabled`). The readiness probe runs every
+  # 5 s with a failure threshold of 2 (only `ontrack.probes.readiness.timeoutSeconds` is used), the pod waits 10 s
+  # before stopping and has 60 s to terminate.
   zeroDowntimeUpgrades: false
   # Next UI setup
   ui:

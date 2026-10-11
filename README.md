@@ -927,7 +927,7 @@ ontrack:
 The backend and the UI are then rolled out one new pod at a time (`maxSurge: 1`, `maxUnavailable: 0`): the old pods
 serve the requests until the new ones are ready. The readiness probe of the backend runs every 5 s, so that a pod is
 withdrawn from the service within 10 s, and a stopping pod waits 10 s (`preStop`) before shutting down, then gets
-60 s to finish its requests. The `ontrack.probes.readiness` settings are ignored in this mode.
+60 s to finish its requests. Only `ontrack.probes.readiness.timeoutSeconds` is used in this mode.
 
 Requirements:
 

@@ -355,7 +355,7 @@ A Helm chart for Kubernetes
 | ontrack.ui.resources.requests.memory | string | `"1Gi"` | Next UI resources |
 | ontrack.ui.service.port | int | `3000` | Exposed port for the Yontrack IO |
 | ontrack.url | string | `"http://localhost:3000"` | Yontrack root URL - must point to the UI service |
-| ontrack.zeroDowntimeUpgrades | bool | `false` | Upgrade mode. `false` (default): one pod, the data PVC, the pod is restarted on upgrade. `true`: rolling update without downtime, for the backend and the UI. Requires a `jdbc` or `secret` key store (`ontrack.config.key_store`). `ontrack.persistence.enabled` is ignored: the pod gets its own ephemeral data volume, sized by `ontrack.persistence.size` (see `ontrack.persistence.ephemeral.enabled`). The readiness probe settings are replaced by a 5 s period and a failure threshold of 2, the pod waits 10 s before stopping and has 60 s to terminate. |
+| ontrack.zeroDowntimeUpgrades | bool | `false` | Upgrade mode. `false` (default): one pod, the data PVC, the pod is restarted on upgrade. `true`: rolling update without downtime, for the backend and the UI. Requires a `jdbc` or `secret` key store (`ontrack.config.key_store`). `ontrack.persistence.enabled` is ignored: the pod gets its own ephemeral data volume, sized by `ontrack.persistence.size` (see `ontrack.persistence.ephemeral.enabled`). The readiness probe runs every 5 s with a failure threshold of 2 (only `ontrack.probes.readiness.timeoutSeconds` is used), the pod waits 10 s before stopping and has 60 s to terminate. |
 | openshift | object | `{"enabled":false}` | Configuration for OpenShift |
 | openshift.enabled | bool | `false` | Whether to enable OpenShift specific resources (like Routes) |
 | podAnnotations | object | `{}` | Annotations for all pods |

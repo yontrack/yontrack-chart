@@ -638,6 +638,16 @@ if render_ok "${ZDU[@]}"; then
     assert_equals "readiness success threshold" "$(manifests "$ONTRACK_CONTAINER | .readinessProbe.successThreshold")" "1"
 fi
 
+test_case "Zero-downtime upgrades: fast readiness without readiness settings"
+if render_ok "${ZDU[@]}" --set ontrack.probes.readiness=null; then
+    assert_equals "readiness probe" "$(ontrack_probe readinessProbe)" "0/5/5/2"
+fi
+
+test_case "Zero-downtime upgrades: the storage class of the ephemeral data volume can disable dynamic provisioning"
+if render_ok "${ZDU[@]}" --set ontrack.persistence.storageClass=-; then
+    assert_equals "storage class" "$(manifests_json "$ONTRACK | .spec.template.spec.volumes[] | select(.name == \"ontrack\") | .ephemeral.volumeClaimTemplate.spec.storageClassName")" '""'
+fi
+
 test_case "Zero-downtime upgrades: endpoints are withdrawn before the shutdown"
 if render_ok "${ZDU[@]}"; then
     assert_equals "preStop" "$(manifests_json "$ONTRACK_CONTAINER | .lifecycle")" '{"preStop":{"exec":{"command":["sleep","10"]}}}'
