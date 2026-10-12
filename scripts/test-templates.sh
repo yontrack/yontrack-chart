@@ -237,6 +237,19 @@ if render_ok --set management.service.specific=true --set management.service.por
     assert_management_not_routed 9000
 fi
 
+MGT_SERVICE='select(.kind == "Service" and .metadata.name == "ontrack-yontrack-chart-management")'
+
+test_case "The management service selects the backend pods"
+if render_ok --set management.service.specific=true; then
+    selector=$(manifests_json "$MGT_SERVICE | .spec.selector")
+    pod_labels=$(manifests_json "$ONTRACK | .spec.template.metadata.labels")
+    assert_json "$selector" 'length > 0' "true"
+    # Every label of the selector must be carried by the backend pods
+    assert_json "{\"selector\": $selector, \"pod\": $pod_labels}" '[.pod as $pod | .selector | to_entries[] | select($pod[.key] != .value)]' "[]"
+    assert_equals "target port" "$(manifests "$MGT_SERVICE | .spec.ports[0].targetPort")" "8800"
+    assert_equals "service name label" "$(manifests "$MGT_SERVICE | .metadata.labels[\"app.kubernetes.io/name\"]")" "yontrack-chart-mgt"
+fi
+
 test_case "The main service can be exposed when the management port has its own service"
 if render_ok --set management.service.specific=true --set service.type=LoadBalancer; then
     assert_management_not_routed 8800
