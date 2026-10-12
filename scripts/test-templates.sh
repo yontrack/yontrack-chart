@@ -390,6 +390,20 @@ if render_ok --set postgresql.local=false --set postgresql.postgresFromEnv=true;
         "docker.io/bitnamilegacy/rabbitmq:4.1.3-debian-12-r1"
 fi
 
+# The README snippet raising max_connections, taken from the README itself: the yaml block setting extendedConfiguration
+test_case "The README snippet raises max_connections of the bundled Postgres (#162)"
+awk '/^```yaml$/ { block = ""; inside = 1; next }
+     /^```$/ && inside { if (block ~ /extendedConfiguration/) printf "%s", block; inside = 0; next }
+     inside { block = block $0 "\n" }' README.md > "$TMP/max-connections.yaml"
+if [ ! -s "$TMP/max-connections.yaml" ]; then
+    fail "no yaml block with extendedConfiguration in the README"
+elif render_ok -f "$TMP/max-connections.yaml"; then
+    POSTGRES_CONFIG=ontrack-postgresql-extended-configuration
+    assert_equals "override.conf" "$(manifests "select(.kind == \"ConfigMap\" and .metadata.name == \"$POSTGRES_CONFIG\") | .data[\"override.conf\"]")" "max_connections = 200"
+    assert_equals "mounted by Postgres" "$(manifests "select(.kind == \"StatefulSet\" and .metadata.name == \"ontrack-postgresql\") | .spec.template.spec.volumes[] | select(.configMap.name == \"$POSTGRES_CONFIG\") | .name")" \
+        "postgresql-extended-config"
+fi
+
 echo "Elasticsearch"
 
 # Environment variables of the Yontrack container whose name matches a regex, as NAME=value (or NAME=secret:key)
