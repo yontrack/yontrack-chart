@@ -952,6 +952,39 @@ kubectl delete pvc <release>-yontrack-chart
 > With a GitOps tool rendering the chart without access to the cluster (ArgoCD), the PVC is no longer rendered
 > and is pruned (or left out of sync) according to the settings of the tool.
 
+## Database connections
+
+During a rollout, two backends are connected to the database. Each one has:
+
+* its main pool, of up to `spring.datasource.hikari.maximum-pool-size` connections (30 by default);
+* a pool for the locks of the background jobs, of up to `ontrack.config.jobs.pool-size` + 10 connections (20 by
+  default), which only opens connections while jobs run.
+
+Both can be set as environment variables of the backend, in `ontrack.envMap`
+(`SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE`, `ONTRACK_CONFIG_JOBS_POOLSIZE`). The `max_connections` of the database
+must leave room for both pools of both backends, next to its other clients. With the defaults, the worst case is 100
+connections during a rollout, while Postgres allows 100 by default, 3 of them reserved for superusers. This worst
+case needs every pool to be full at the same moment, which is unlikely.
+
+With the bundled database (`postgresql.local: true`), `max_connections` keeps the default of Postgres. Raise it
+through the Bitnami sub-chart:
+
+```yaml
+postgresql:
+  primary:
+    extendedConfiguration: |
+      max_connections = 200
+```
+
+With an [external database](#using-a-managed-database), `max_connections` is a setting of the database itself: a
+parameter of the managed service, or `spec.postgresql.parameters.max_connections` with CloudNativePG.
+
+To see the actual use, during a rollout:
+
+```sql
+select count(*) from pg_stat_activity where datname = '<database>';
+```
+
 ## Contract migrations
 
 Yontrack migrates its database in two phases. The _expand_ migrations are compatible with the previous version, and
