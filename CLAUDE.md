@@ -91,7 +91,9 @@ Fixes needed on both lines land on `main` and are cherry-picked to `v5` (no forw
 
 A merge that leaves `version` unchanged publishes nothing. So every PR that changes what the chart ships (templates, values, files, sub-charts) ends with its own commit, `chore: chart <version>`, that bumps `version` in `Chart.yaml` to the next one on its line (on `main`: `6.0.0-beta.N` → `6.0.0-beta.N+1`). In that commit, also run `helm-docs charts/yontrack`, which updates the version badge in `charts/yontrack/README.md`. Changes to docs, scripts or CI alone keep the version.
 
-`.yontrack/ci.yaml` configures Yontrack's auto-versioning: when a Yontrack build on the upstream `main` branch is promoted to `GOLD` (the level at which its images reach Docker Hub), a PR is automatically opened updating `appVersion` in `Chart.yaml`.
+`.yontrack/ci.yaml` configures Yontrack's auto-versioning: when a Yontrack build on the upstream `main` branch is promoted to `RELEASE`, a PR is automatically opened updating `appVersion` in `Chart.yaml` (as on `v5`, which follows `RELEASE` on `release-5.5`). It follows `RELEASE`, not `GOLD`: `GOLD` only *starts* Yontrack's `release.yml`, while the build's version is still the rc candidate (`6.0-beta.5-rc-700`), a tag that is on GHCR but never on Docker Hub, so `scripts/check-images.sh` fails. `RELEASE` is granted once `release.yml` has published the images and rewritten the version to the published one (`6.0-beta.5`), so `${VERSION}` is always a Docker Hub tag.
+
+Until yontrack/yontrack#2070 lands, pre-releases are never granted `RELEASE`, so betas do not bump `appVersion` on their own: if one must reach the chart, set `appVersion` by hand to the version published on Docker Hub (as #155 did).
 
 ### Documentation Generation
 
