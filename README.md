@@ -74,7 +74,7 @@ helm install yontrack oci://registry-1.docker.io/yontrack/yontrack-chart
 > are only published** to `oci://registry-1.docker.io/yontrack/yontrack-chart`.
 
 > [!TIP]
-> 6.x prereleases (`6.0.0-alpha.N`, ...) are ignored by Helm unless you pass `--devel`
+> 6.x prereleases (`6.0.0-beta.N`, ...) are ignored by Helm unless you pass `--devel`
 > or an explicit `--version`.
 
 To uninstall the chart:
