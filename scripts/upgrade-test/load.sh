@@ -13,8 +13,10 @@ SEED=upgrade-test
 request() {
     kind="$1"
     shift
+    # curl leaves the body of the previous request when it gets none
+    rm -f "/tmp/$kind.body"
     CODE=$(curl -sS -o "/tmp/$kind.body" -w '%{http_code}' --max-time 10 "$@" 2> "/tmp/$kind.err")
-    BODY="$(cat "/tmp/$kind.body" 2> /dev/null)$(cat "/tmp/$kind.err")"
+    BODY="$(cat "/tmp/$kind.err")$(cat "/tmp/$kind.body" 2> /dev/null)"
 }
 
 graphql() {

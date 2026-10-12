@@ -664,12 +664,18 @@ test_case "By default, the UI keeps its strategy and probes"
 if render_ok; then
     assert_equals "strategy" "$(manifests_json "$UI | .spec.strategy")" "null"
     assert_equals "readiness period" "$(manifests "$UI | .spec.template.spec.containers[0].readinessProbe.periodSeconds")" "20"
+    assert_equals "preStop" "$(manifests_json "$UI | .spec.template.spec.containers[0].lifecycle")" "null"
 fi
 
 test_case "Zero-downtime upgrades: rolling update and fast readiness for the UI"
 if render_ok "${ZDU[@]}"; then
     assert_equals "strategy" "$(manifests_json "$UI | .spec.strategy")" "$ROLLING"
     assert_equals "readiness period" "$(manifests "$UI | .spec.template.spec.containers[0].readinessProbe.periodSeconds")" "5"
+fi
+
+test_case "Zero-downtime upgrades: the UI endpoints are withdrawn before the shutdown"
+if render_ok "${ZDU[@]}"; then
+    assert_equals "preStop" "$(manifests_json "$UI | .spec.template.spec.containers[0].lifecycle")" '{"preStop":{"exec":{"command":["sleep","10"]}}}'
 fi
 
 echo "Contract migrations"

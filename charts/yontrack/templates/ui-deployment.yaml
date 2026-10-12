@@ -131,6 +131,13 @@ spec:
               containerPort: 3000
               protocol: TCP
           resources: {{ toYaml .Values.ontrack.ui.resources | nindent 12 }}
+          {{- if .Values.ontrack.zeroDowntimeUpgrades }}
+          lifecycle:
+            # Lets the endpoints be withdrawn before the UI server exits, which it does on SIGTERM
+            preStop:
+              exec:
+                command: ["sleep", "10"]
+          {{- end }}
           # Probes
           livenessProbe:
             httpGet:
