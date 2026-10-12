@@ -72,6 +72,8 @@ load_logs() {
 diagnostics() {
     log "Diagnostics in $OUT"
     "${KUBECTL[@]}" get all,events -o wide > "$OUT/resources.txt" 2>&1 || true
+    "${KUBECTL[@]}" get events --sort-by=.lastTimestamp \
+        -o custom-columns=TIME:.lastTimestamp,REASON:.reason,OBJECT:.involvedObject.name,MESSAGE:.message > "$OUT/events.txt" 2>&1 || true
     "${KUBECTL[@]}" logs "deployment/$BACKEND" --all-containers --tail=-1 > "$OUT/backend.log" 2>&1 || true
     "${KUBECTL[@]}" logs "deployment/$BACKEND-ui" --tail=-1 > "$OUT/ui.log" 2>&1 || true
     load_logs > "$OUT/load.log"

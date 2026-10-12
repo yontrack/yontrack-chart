@@ -7,6 +7,8 @@
 set -u
 
 SEED=upgrade-test
+# Suffix of the created stamps, unique per run of the pod (its PID is always 1)
+RUN=$(date +%s)
 
 # Runs a request, with $1 the kind of request and the rest the curl arguments,
 # and sets CODE (HTTP code, 000 on a connection error) and BODY
@@ -37,19 +39,19 @@ done
 # Seeding
 graphql seed "mutation { createPredefinedValidationStamp(input: {name: \\\"$SEED\\\", description: \\\"\\\"}) { predefinedValidationStamp { id } errors { message } } }"
 echo "Seed: $CODE $BODY"
-echo "$BODY" | grep -qF '"predefinedValidationStamp":{"id"' || { echo "ERROR seed"; exit 1; }
+echo "$BODY" | grep -qE '"predefinedValidationStamp":\{"id"|already exists' || { echo "ERROR seed"; exit 1; }
 
 # Checks the last request, given the kind, the request number and an expected fragment of the body
 check() {
     case "$CODE" in
         2??)
             if [ -n "$3" ] && ! echo "$BODY" | grep -qF "$3"; then
-                echo "FAIL $1 #$2 $CODE $BODY"
+                echo "FAIL $1 #$2 $(date +%T) $CODE $BODY"
                 return 1
             fi
             ;;
         *)
-            echo "FAIL $1 #$2 $CODE $BODY" | head -c 500
+            echo "FAIL $1 #$2 $(date +%T) $CODE $BODY" | head -c 500
             echo
             return 1
             ;;
@@ -69,7 +71,7 @@ loop() {
                 expected="\"name\":\"$SEED\""
                 ;;
             mutation)
-                graphql mutation "mutation { createPredefinedValidationStamp(input: {name: \\\"$SEED-$n-$$\\\", description: \\\"\\\"}) { predefinedValidationStamp { id } errors { message } } }"
+                graphql mutation "mutation { createPredefinedValidationStamp(input: {name: \\\"$SEED-$RUN-$n\\\", description: \\\"\\\"}) { predefinedValidationStamp { id } errors { message } } }"
                 expected='"predefinedValidationStamp":{"id"'
                 ;;
             ui)
