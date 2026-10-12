@@ -1,0 +1,68 @@
+{{- if .Values.ontrack.zeroDowntimeUpgrades }}
+# Contract migrations - the destructive schema changes - run once the previous version is gone:
+# after the rollout (`helm upgrade --wait`), or after the sync waves of the backend and of the UI under ArgoCD.
+# The ArgoCD annotations are explicit, for the manifests rendered outside ArgoCD (`helm template`).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-contract-migrations" (include "ontrack.fullname" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "ontrack.labels.contractMigrations" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  # A failed contract is rolled back and stays pending: the next upgrade retries it
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ .Values.ontrack.contractMigrations.activeDeadlineSeconds }}
+  template:
+    metadata:
+      {{- with merge (deepCopy .Values.ontrack.podAnnotations | default (dict)) (deepCopy .Values.podAnnotations | default (dict)) }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "ontrack.selectorLabels.contractMigrations" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "ontrack.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        # Same image and wiring as the backend, which runs the pending contract migrations and exits
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          volumeMounts:
+            {{- include "ontrack.backend.volumeMounts" . | nindent 12 }}
+          env:
+            {{- include "ontrack.backend.env" . | nindent 12 }}
+            - name: ONTRACK_CONFIG_DATABASE_RUNCONTRACTANDEXIT
+              value: "true"
+          envFrom:
+            {{- include "ontrack.backend.envFrom" . | nindent 12 }}
+          resources: {{ toYaml .Values.ontrack.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.affinity }}
+      affinity:
+        {{- toYaml .Values.affinity | nindent 8 }}
+      {{- end }}
+      {{- if .Values.tolerations }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      {{- end }}
+      volumes:
+        # Nothing to keep: the Job never clones a repository
+        - name: ontrack
+          emptyDir: {}
+        {{- include "ontrack.backend.configVolumes" . | nindent 8 }}
+{{- end }}

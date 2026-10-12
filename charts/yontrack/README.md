@@ -1,6 +1,6 @@
 # yontrack-chart
 
-![Version: 6.0.0-alpha.9](https://img.shields.io/badge/Version-6.0.0--alpha.9-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0-beta.5-rc-700](https://img.shields.io/badge/AppVersion-6.0--beta.5--rc--700-informational?style=flat-square)
+![Version: 6.0.0-alpha.10](https://img.shields.io/badge/Version-6.0.0--alpha.10-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0-beta.5](https://img.shields.io/badge/AppVersion-6.0--beta.5-informational?style=flat-square)
 
 A Helm chart for Kubernetes
 
@@ -311,6 +311,7 @@ A Helm chart for Kubernetes
 | ontrack.config.secret_key_store.external.store.name | string | `"vault-backend"` | Name of the secret store |
 | ontrack.config.secret_key_store.external.store.path | string | `"ontrack/encryption"` | Path to the secret in the store. |
 | ontrack.config.secret_key_store.secret_name | string | `"ontrack-key-store"` | Name of the secret |
+| ontrack.contractMigrations.activeDeadlineSeconds | int | `600` | Maximum duration of the contract migrations Job, in seconds (`activeDeadlineSeconds`). It is failed past it. |
 | ontrack.env | list | `[]` | Arbitrary environment variables, using https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#envvar-v1-core |
 | ontrack.envMap | object | `{}` | Arbitrary environment variables (as a map) |
 | ontrack.extraConfig.configmaps | list | `[]` | Arbitrary config map sources |
@@ -355,7 +356,7 @@ A Helm chart for Kubernetes
 | ontrack.ui.resources.requests.memory | string | `"1Gi"` | Next UI resources |
 | ontrack.ui.service.port | int | `3000` | Exposed port for the Yontrack IO |
 | ontrack.url | string | `"http://localhost:3000"` | Yontrack root URL - must point to the UI service |
-| ontrack.zeroDowntimeUpgrades | bool | `false` | Upgrade mode. `false` (default): one pod, the data PVC, the pod is restarted on upgrade. `true`: rolling update without downtime, for the backend and the UI. Requires a `jdbc` or `secret` key store (`ontrack.config.key_store`). `ontrack.persistence.enabled` is ignored: the pod gets its own ephemeral data volume, sized by `ontrack.persistence.size` (see `ontrack.persistence.ephemeral.enabled`). The readiness probe runs every 5 s with a failure threshold of 2 (only `ontrack.probes.readiness.timeoutSeconds` is used), the pod waits 10 s before stopping and has 60 s to terminate. |
+| ontrack.zeroDowntimeUpgrades | bool | `false` | Upgrade mode. `false` (default): one pod, the data PVC, the pod is restarted on upgrade. `true`: rolling update without downtime, for the backend and the UI. Requires a `jdbc` or `secret` key store (`ontrack.config.key_store`). `ontrack.persistence.enabled` is ignored: the pod gets its own ephemeral data volume, sized by `ontrack.persistence.size` (see `ontrack.persistence.ephemeral.enabled`). The readiness probe runs every 5 s with a failure threshold of 2 (only `ontrack.probes.readiness.timeoutSeconds` is used), the backend and UI pods wait 10 s before stopping, and the backend has 60 s to terminate. The contract migrations (destructive schema changes) are deferred, and run by a post-install/post-upgrade hook Job once the rollout is done: `helm upgrade` needs `--wait`. Under ArgoCD, the backend rolls out first (sync wave 0), then the UI (wave 1), then the hook Job (`PostSync`). |
 | openshift | object | `{"enabled":false}` | Configuration for OpenShift |
 | openshift.enabled | bool | `false` | Whether to enable OpenShift specific resources (like Routes) |
 | podAnnotations | object | `{}` | Annotations for all pods |

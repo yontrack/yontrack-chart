@@ -1,0 +1,29 @@
+# Values of the upgrade test (scripts/upgrade-test.sh), for the previous chart and for the chart under test.
+ontrack:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  ui:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+  envMap:
+    # Actuator endpoint giving a token for an account (the provisioned admin)
+    MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus,account
+    MANAGEMENT_ENDPOINT_ACCOUNT_ACCESS: unrestricted
+# No Keycloak: the test uses an API token, and the backend only resolves the issuer for a JWT
+auth:
+  kind: oidc
+  oidc:
+    issuer: http://idp.invalid/realms/upgrade-test
+    credentials:
+      secret:
+        enabled: false
+      client:
+        clientId: upgrade-test
+        clientSecret: upgrade-test

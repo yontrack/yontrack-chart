@@ -1,0 +1,56 @@
+name: Upgrade tests
+
+# Upgrades the previous published chart to the chart of the commit, on a kind cluster (#151):
+# - rolling: `ontrack.zeroDowntimeUpgrades: true`, under load, fails on any failed request, and checks
+#   that the hook Job runs the contract migration;
+# - default: the pod comes back, and both migrations run at startup.
+# See scripts/upgrade-test.sh.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  upgrade:
+    # A branch of this repository is already tested by its push
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [ rolling, default ]
+    name: upgrade (${{ matrix.mode }})
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Preparing theme
+        run: |
+          chmod +x scripts/build-theme.sh
+          ./scripts/build-theme.sh
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v4.1.3
+
+      - name: Kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: yt-upgrade
+
+      - name: Upgrade test
+        run: |
+          chmod +x scripts/upgrade-test.sh
+          ./scripts/upgrade-test.sh ${{ matrix.mode }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-test-${{ matrix.mode }}
+          path: build/upgrade-test
+          if-no-files-found: ignore

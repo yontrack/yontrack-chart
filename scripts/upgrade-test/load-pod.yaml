@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: upgrade-test-load
+spec:
+  restartPolicy: Never
+  containers:
+    - name: load
+      image: curlimages/curl:8.11.1
+      command: ["sh", "/scripts/load.sh"]
+      env:
+        - name: BACKEND
+          value: http://yt-yontrack-chart:8080
+        - name: MGT
+          value: http://yt-yontrack-chart:8800
+        - name: UI
+          value: http://yt-yontrack-chart-ui:3000
+        - name: ADMIN
+          value: admin@ontrack.local
+      volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+  volumes:
+    - name: scripts
+      configMap:
+        name: upgrade-test-load
