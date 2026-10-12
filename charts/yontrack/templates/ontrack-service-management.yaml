@@ -17,5 +17,5 @@ spec:
       protocol: TCP
       name: mgt
   selector:
-    {{- include "ontrack.selectorLabels.mgt" . | nindent 4 }}
+    {{- include "ontrack.selectorLabels" . | nindent 4 }}
 {{- end }}
