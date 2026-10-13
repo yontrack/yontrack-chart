@@ -72,6 +72,16 @@ Environment of the Yontrack backend container, shared by the Deployment and the 
 - name: SPRING_DATASOURCE_PASSWORD
   value: {{ .Values.postgresql.auth.password | quote }}
 {{- end }}
+{{- $poolSizeVariable := "SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE" }}
+{{- $poolSizeOverridden := hasKey (.Values.ontrack.envMap | default dict) $poolSizeVariable }}
+{{- range .Values.ontrack.env }}
+{{- if eq .name $poolSizeVariable }}{{ $poolSizeOverridden = true }}{{ end }}
+{{- end }}
+{{- if not $poolSizeOverridden }}
+# Main connection pool, counted in the connection budget of the bundled Postgres (unless set in ontrack.env or ontrack.envMap)
+- name: SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE
+  value: {{ .Values.ontrack.database.poolSize | quote }}
+{{- end }}
 {{- if .Values.ontrack.zeroDowntimeUpgrades }}
 # Destructive migrations wait for the previous version to be gone: run by the contract migrations Job
 - name: ONTRACK_CONFIG_DATABASE_CONTRACTMIGRATIONS

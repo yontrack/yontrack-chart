@@ -954,30 +954,61 @@ kubectl delete pvc <release>-yontrack-chart
 
 ## Database connections
 
-During a rollout, two backends are connected to the database. Each one has:
+Each backend opens up to:
 
-* its main pool, of up to `spring.datasource.hikari.maximum-pool-size` connections (30 by default);
+* its main pool, of up to `ontrack.database.poolSize` connections (30 by default);
 * a pool for the locks of the background jobs, of up to `ontrack.config.jobs.pool-size` + 10 connections (20 by
   default), which only opens connections while jobs run.
 
-Both can be set as environment variables of the backend, in `ontrack.envMap`
-(`SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE`, `ONTRACK_CONFIG_JOBS_POOLSIZE`). The `max_connections` of the database
-must leave room for both pools of both backends, next to its other clients. With the defaults, the worst case is 100
-connections during a rollout, while Postgres allows 100 by default, 3 of them reserved for superusers. This worst
-case needs every pool to be full at the same moment, which is unlikely.
+Set the main pool with `ontrack.database.poolSize`, not with `SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE` in
+`ontrack.envMap` or `ontrack.env`: the variable still wins, but it is not counted in the budget below. The same goes for
+`ONTRACK_CONFIG_JOBS_POOLSIZE`, which the budget does not track.
 
-With the bundled database (`postgresql.local: true`), `max_connections` keeps the default of Postgres. Raise it
-through the Bitnami sub-chart:
+The connection budget is the most connections the backends can hold at the same time. With B =
+`ontrack.database.poolSize` + 20 per backend:
 
-```yaml
-postgresql:
-  primary:
-    extendedConfiguration: |
-      max_connections = 200
+| Mode                                  | Budget                                   | Defaults                   |
+|---------------------------------------|------------------------------------------|----------------------------|
+| `ontrack.zeroDowntimeUpgrades: true`  | 2 × B + `ontrack.database.poolSize` + 10 | 2 × 50 + 30 + 10 = **140** |
+| `ontrack.zeroDowntimeUpgrades: false` | 1 × B + 10                               | 1 × 50 + 10 = **60**       |
+
+* With zero-downtime upgrades, two backends run side by side during the rollout.
+* The [contract migrations](#contract-migrations) Job only opens its main pool: it exits before the job locks are used.
+  It is counted on top of both backends, because `helm --wait` and the ArgoCD `PostSync` hook see the rollout as done
+  while the old pods may still be terminating, with their connections open.
+* The margin of 10 covers the 3 connections Postgres reserves for superusers, the metrics exporter and admin sessions.
+
+This worst case needs every pool to be full at the same moment, which is unlikely, but it is what the database must
+allow.
+
+### Bundled database
+
+With the bundled database (`postgresql.local: true`), `max_connections` is `postgresql.maxConnections` (150 by
+default). The render fails when the budget is above it, for example:
+
+```
+Postgres connections: the backends need up to 170 (2 backends × 60 + hook Job 40 + 10), above postgresql.maxConnections (150). Raise postgresql.maxConnections or lower ontrack.database.poolSize.
 ```
 
-With an [external database](#using-a-managed-database), `max_connections` is a setting of the database itself: a
-parameter of the managed service, or `spec.postgresql.parameters.max_connections` with CloudNativePG.
+Raise `postgresql.maxConnections` for more room: the check never blocks it upward. Changing it restarts Postgres.
+
+> Upgrading to the chart version which sets `max_connections` (6.0.0-beta.1) restarts the bundled Postgres once:
+> a short database outage, even with `ontrack.zeroDowntimeUpgrades: true`.
+
+`max_connections` is rendered by `postgresql.primary.extendedConfiguration`. If you override it, you take over
+`max_connections`: keep a `max_connections = {{ .Values.maxConnections }}` line in it, or the render check no longer
+matches the database.
+
+### External database
+
+With an [external database](#using-a-managed-database), the chart does not check anything. Compare the budget with
+what the database allows:
+
+* `SHOW max_connections`, minus `SHOW superuser_reserved_connections`;
+* minus the connections of the other databases and applications on the same server;
+* managed services (RDS, Cloud SQL, Azure Database) size `max_connections` from the instance class: a small instance
+  may allow fewer connections than the budget;
+* with CloudNativePG, set `spec.postgresql.parameters.max_connections` in the `Cluster`.
 
 To see the actual use, during a rollout:
 
@@ -1065,6 +1096,8 @@ kubectl delete pvc data-<release>-elasticsearch-master-0
   Upgrading from an earlier chart deletes the `StatefulSet` and creates the `Deployment`: Yontrack restarts once, whatever
   the value of `ontrack.zeroDowntimeUpgrades`. With the default mode, the existing `<release>-yontrack-chart` PVC is reused.
   With `ontrack.zeroDowntimeUpgrades: true`, it is left in place, for you to delete.
+* The bundled Postgres now has an explicit `max_connections` (`postgresql.maxConnections`, 150 by default), checked
+  against the [connection budget](#database-connections) of the backends. Upgrading restarts it once.
 * The legacy `oci://registry-1.docker.io/nemerosa/yontrack-chart` location only receives 5.x versions.
 
 # Change log
@@ -1089,6 +1122,7 @@ kubectl delete pvc data-<release>-elasticsearch-master-0
 * [Audit trail instance key](#audit-trail-instance-key) mapped from the external secret store with `ontrack.config.secret_key_store.external.auditTrail`
 * Yontrack backend as a `Deployment`, with optional [zero-downtime upgrades](#zero-downtime-upgrades) (`ontrack.zeroDowntimeUpgrades`)
 * [Contract migrations](#contract-migrations) in a post-upgrade hook Job, and [rollout order](#rollout-order) under ArgoCD, for zero-downtime upgrades
+* [Connection budget](#database-connections) of the backends, checked against `postgresql.maxConnections` with the bundled Postgres
 * See [Upgrading to 6.x](#upgrading-to-6x)
 
 ## 1.0
