@@ -458,6 +458,8 @@ auth:
     image: quay.io/keycloak/keycloak
     # -- Version this image of Keycloak to deploy
     tag: 26.2.5
+    # -- Number of replicas for the local Keycloak instance. See "Keycloak replicas" in the README before raising it.
+    replicas: 1
     # -- Starting the server in verbose mode
     verbose: false
     # -- Log level for the local Keycloak instance

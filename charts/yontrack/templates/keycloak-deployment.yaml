@@ -10,7 +10,7 @@ metadata:
   labels:
     {{- include "ontrack.labels.keycloak" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.ontrack.ui.replicas }}
+  replicas: {{ .Values.auth.keycloak.replicas }}
   selector:
     matchLabels:
       {{- include "ontrack.selectorLabels.keycloak" . | nindent 6 }}
