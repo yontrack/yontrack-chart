@@ -12,6 +12,7 @@ This Helm chart is compatible with Helm 3 and allows the installation of Yontrac
   * [Evidence upload size](#evidence-upload-size)
 * [Authentication](#authentication)
   * [Default local Keycloak instance](#default-local-keycloak-instance)
+    * [Keycloak replicas](#keycloak-replicas)
   * [OIDC for Okta](#oidc-for-okta)
   * [OIDC for Auth0](#oidc-for-auth0)
   * [LDAP](#ldap)
@@ -205,6 +206,19 @@ By default, the Yontrack Helm chart sets up an instance of Keycloak, configured 
 ## Default local Keycloak instance
 
 > See [Keycloak authentication](docs/keycloak.md)
+
+### Keycloak replicas
+
+The local Keycloak instance runs one pod, whatever the number of UI replicas (`ontrack.ui.replicas`).
+Its number of pods is set by `auth.keycloak.replicas`. Before raising it above `1`:
+
+* the Keycloak pods form a cluster through their database (`jdbc-ping`), and share the login sessions and
+  authorization codes over it: they must reach each other directly on TCP ports `7800` and `57800`. If they cannot
+  (a `NetworkPolicy`, for example), each pod keeps its own sessions, and logins fail intermittently.
+* each pod imports the realm when it starts (`--import-realm`). Install with one replica, and scale up once the realm
+  exists.
+
+The test LDAP (`auth.keycloak.ldap.testing.enabled`) always runs one pod.
 
 ## OIDC for Okta
 
@@ -928,6 +942,9 @@ The backend and the UI are then rolled out one new pod at a time (`maxSurge: 1`,
 serve the requests until the new ones are ready. The readiness probe of the backend runs every 5 s, so that a pod is
 withdrawn from the service within 10 s, and a stopping pod waits 10 s (`preStop`) before shutting down, then gets
 60 s to finish its requests. A stopping UI pod also waits 10 s, for its endpoints to be withdrawn before it exits. Only `ontrack.probes.readiness.timeoutSeconds` is used in this mode.
+
+`ontrack.ui.replicas` only scales the UI: the local Keycloak instance has its own number of replicas
+(see [Keycloak replicas](#keycloak-replicas)).
 
 Requirements:
 

@@ -909,6 +909,24 @@ if grep -qF "signout-complete" "$TMP/notes.txt"; then
     fail "post-logout redirect URI in the notes"
 fi
 
+echo "Keycloak replicas"
+
+KEYCLOAK='select(.kind == "Deployment" and .metadata.name == "ontrack-yontrack-chart-keycloak")'
+TEST_LDAP='select(.kind == "Deployment" and .metadata.name == "ontrack-yontrack-chart-ldap")'
+
+test_case "Keycloak and the test LDAP do not follow the UI replicas (#166)"
+if render_ok -f "$LDAP" --set auth.keycloak.ldap.testing.enabled=true --set ontrack.ui.replicas=3; then
+    assert_equals "UI replicas" "$(manifests "$UI | .spec.replicas")" "3"
+    assert_equals "Keycloak replicas" "$(manifests "$KEYCLOAK | .spec.replicas")" "1"
+    assert_equals "test LDAP replicas" "$(manifests "$TEST_LDAP | .spec.replicas")" "1"
+fi
+
+test_case "Keycloak replicas are set by auth.keycloak.replicas"
+if render_ok --set auth.keycloak.replicas=2; then
+    assert_equals "Keycloak replicas" "$(manifests "$KEYCLOAK | .spec.replicas")" "2"
+    assert_equals "UI replicas" "$(manifests "$UI | .spec.replicas")" "1"
+fi
+
 echo "Keycloak theme"
 
 test_case "The theme archive does not depend on the checkout time, umask or owner (#99)"

@@ -6,7 +6,7 @@ metadata:
   labels:
     {{- include "ontrack.labels.ldap" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.ontrack.ui.replicas }}
+  replicas: 1
   selector:
     matchLabels:
       {{- include "ontrack.selectorLabels.ldap" . | nindent 6 }}
