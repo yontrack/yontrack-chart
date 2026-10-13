@@ -1009,7 +1009,7 @@ Postgres connections: the backends need up to 170 (2 backends × 60 + hook Job 4
 
 Raise `postgresql.maxConnections` for more room: the check never blocks it upward. Changing it restarts Postgres.
 
-> Upgrading to the chart version which sets `max_connections` (6.0.0-beta.1) restarts the bundled Postgres once:
+> Upgrading to the chart version which sets `max_connections` (6.0.0-beta.2) restarts the bundled Postgres once:
 > a short database outage, even with `ontrack.zeroDowntimeUpgrades: true`.
 
 `max_connections` is rendered by `postgresql.primary.extendedConfiguration`. If you override it, you take over
