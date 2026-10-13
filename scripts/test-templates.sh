@@ -390,16 +390,10 @@ if render_ok --set postgresql.local=false --set postgresql.postgresFromEnv=true;
         "docker.io/bitnamilegacy/rabbitmq:4.1.3-debian-12-r1"
 fi
 
-# The README snippet raising max_connections, taken from the README itself: the yaml block setting extendedConfiguration
-test_case "The README snippet raises max_connections of the bundled Postgres (#162)"
-awk '/^```yaml$/ { block = ""; inside = 1; next }
-     /^```$/ && inside { if (block ~ /extendedConfiguration/) printf "%s", block; inside = 0; next }
-     inside { block = block $0 "\n" }' README.md > "$TMP/max-connections.yaml"
-if [ ! -s "$TMP/max-connections.yaml" ]; then
-    fail "no yaml block with extendedConfiguration in the README"
-elif render_ok -f "$TMP/max-connections.yaml"; then
+test_case "The bundled Postgres has an explicit max_connections (#167)"
+if render_ok; then
     POSTGRES_CONFIG=ontrack-postgresql-extended-configuration
-    assert_equals "override.conf" "$(manifests "select(.kind == \"ConfigMap\" and .metadata.name == \"$POSTGRES_CONFIG\") | .data[\"override.conf\"]")" "max_connections = 200"
+    assert_equals "override.conf" "$(manifests "select(.kind == \"ConfigMap\" and .metadata.name == \"$POSTGRES_CONFIG\") | .data[\"override.conf\"]")" "max_connections = 150"
     assert_equals "mounted by Postgres" "$(manifests "select(.kind == \"StatefulSet\" and .metadata.name == \"ontrack-postgresql\") | .spec.template.spec.volumes[] | select(.configMap.name == \"$POSTGRES_CONFIG\") | .name")" \
         "postgresql-extended-config"
 fi
@@ -812,6 +806,55 @@ test_case "The service annotations are kept by default"
 if render_ok --set service.annotations.team=yontrack; then
     assert_equals "service annotations" "$(manifests_json "$ONTRACK_SERVICE | .metadata.annotations")" '{"team":"yontrack"}'
 fi
+
+echo "Database connections"
+
+test_case "The backend pool size is set in the backend and in the contract migrations Job (#167)"
+if render_ok "${ZDU[@]}" --set ontrack.database.poolSize=25; then
+    assert_equals "backend" "$(container_env "$ONTRACK_CONTAINER" SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE)" \
+        "SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE=25"
+    assert_equals "Job" "$(container_env "$CONTRACT_CONTAINER" SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE)" \
+        "SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE=25"
+fi
+
+test_case "The backend pool size is 30 by default (#167)"
+if render_ok; then
+    assert_equals "backend" "$(container_env "$ONTRACK_CONTAINER" SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE)" \
+        "SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE=30"
+fi
+
+test_case "The backend pool size can still be set in ontrack.envMap, without a duplicate variable (#167)"
+if render_ok --set ontrack.envMap.SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE=45; then
+    assert_equals "backend" "$(container_env "$ONTRACK_CONTAINER" SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE)" \
+        "SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE=45"
+fi
+
+test_case "The backend pool size can still be set in ontrack.env, without a duplicate variable (#167)"
+if render_ok --set 'ontrack.env[0].name=SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE' --set 'ontrack.env[0].value=45'; then
+    assert_equals "backend" "$(container_env "$ONTRACK_CONTAINER" SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE)" \
+        "SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE=45"
+fi
+
+test_case "A null ontrack.envMap still renders (#167)"
+render_ok --set ontrack.envMap=null
+
+test_case "Zero-downtime upgrades: the bundled Postgres has room for two backends and the hook Job by default (#167)"
+render_ok "${ZDU[@]}"
+
+test_case "Zero-downtime upgrades: a budget above postgresql.maxConnections fails the render (#167)"
+render_fails_with "the backends need up to 170 (2 backends × 60 + hook Job 40 + 10), above postgresql.maxConnections (150)" \
+    "${ZDU[@]}" --set ontrack.database.poolSize=40
+
+test_case "Zero-downtime upgrades: a budget equal to postgresql.maxConnections renders (#167)"
+render_ok "${ZDU[@]}" --set ontrack.database.poolSize=40 --set postgresql.maxConnections=170
+
+test_case "Default mode: a budget above postgresql.maxConnections fails the render (#167)"
+render_fails_with "the backends need up to 160 (1 backend × 150 + 10), above postgresql.maxConnections (150)" \
+    --set ontrack.database.poolSize=130
+
+test_case "External Postgres: no check on the connections (#167)"
+render_ok "${ZDU[@]}" --set ontrack.database.poolSize=500 \
+    --set postgresql.local=false --set postgresql.postgresqlUrl=jdbc:postgresql://db/yontrack
 
 echo "UI sign-out"
 

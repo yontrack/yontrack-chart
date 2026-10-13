@@ -1,6 +1,6 @@
 # yontrack-chart
 
-![Version: 6.0.0-beta.1](https://img.shields.io/badge/Version-6.0.0--beta.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0.0-beta.7](https://img.shields.io/badge/AppVersion-6.0.0--beta.7-informational?style=flat-square)
+![Version: 6.0.0-beta.2](https://img.shields.io/badge/Version-6.0.0--beta.2-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0.0-beta.7](https://img.shields.io/badge/AppVersion-6.0.0--beta.7-informational?style=flat-square)
 
 A Helm chart for Kubernetes
 
@@ -313,6 +313,7 @@ A Helm chart for Kubernetes
 | ontrack.config.secret_key_store.external.store.path | string | `"ontrack/encryption"` | Path to the secret in the store. |
 | ontrack.config.secret_key_store.secret_name | string | `"ontrack-key-store"` | Name of the secret |
 | ontrack.contractMigrations.activeDeadlineSeconds | int | `600` | Maximum duration of the contract migrations Job, in seconds (`activeDeadlineSeconds`). It is failed past it. |
+| ontrack.database.poolSize | int | `30` | Maximum size of the main connection pool of each backend (`SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE`), also used by the contract migrations Job. With the bundled database, it is counted in the connection budget checked against `postgresql.maxConnections` (see "Database connections" in the chart README). |
 | ontrack.env | list | `[]` | Arbitrary environment variables, using https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#envvar-v1-core |
 | ontrack.envMap | object | `{}` | Arbitrary environment variables (as a map) |
 | ontrack.extraConfig.configmaps | list | `[]` | Arbitrary config map sources |
@@ -362,15 +363,17 @@ A Helm chart for Kubernetes
 | openshift.enabled | bool | `false` | Whether to enable OpenShift specific resources (like Routes) |
 | podAnnotations | object | `{}` | Annotations for all pods |
 | podSecurityContext | object | `{}` | Security context for all pods |
-| postgresql | object | `{"auth":{"database":"ontrack","password":"ontrack","username":"ontrack"},"image":{"repository":"bitnamilegacy/postgresql"},"local":true,"postgresFromEnv":false,"postgresqlUrl":""}` | Local database |
+| postgresql | object | `{"auth":{"database":"ontrack","password":"ontrack","username":"ontrack"},"image":{"repository":"bitnamilegacy/postgresql"},"local":true,"maxConnections":150,"postgresFromEnv":false,"postgresqlUrl":"","primary":{"extendedConfiguration":"max_connections = {{ .Values.maxConnections }}"}}` | Local database |
 | postgresql.auth | object | `{"database":"ontrack","password":"ontrack","username":"ontrack"}` | Authentication parameters |
 | postgresql.auth.database | string | `"ontrack"` | Name of the database to create |
 | postgresql.auth.password | string | `"ontrack"` | Credentials to be used |
 | postgresql.auth.username | string | `"ontrack"` | Credentials to be used |
 | postgresql.image.repository | string | `"bitnamilegacy/postgresql"` | See the announcement at https://hub.docker.com/r/bitnami/rabbitmq |
 | postgresql.local | bool | `true` | Enabling the local database |
+| postgresql.maxConnections | int | `150` | `max_connections` of the bundled database (`postgresql.local: true`). The render fails when it is below the connection budget of the backends (see "Database connections" in the chart README). Changing it restarts Postgres. |
 | postgresql.postgresFromEnv | bool | `false` | For external database, using environment variables |
 | postgresql.postgresqlUrl | string | `""` | For external database |
+| postgresql.primary.extendedConfiguration | string | `"max_connections = {{ .Values.maxConnections }}"` | Extra configuration of the bundled database, rendered by the sub-chart, where `.Values` are the `postgresql.*` values. Overriding it takes over `max_connections`: keep a `max_connections = ...` line in it. |
 | rabbitmq | object | `{"auth":{"erlangCookie":"ontrack","password":"ontrack","username":"ontrack"},"image":{"repository":"bitnamilegacy/rabbitmq"}}` | Local RabbitMQ for message processing |
 | replicaCount | int | `1` |  |
 | securityContext | object | `{}` | Security context for the containers |

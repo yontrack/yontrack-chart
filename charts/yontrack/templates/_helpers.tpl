@@ -397,6 +397,42 @@ Zero-downtime upgrades: the data volume is ephemeral, so nothing which must surv
 {{- end }}
 
 {{/*
+Connection budget of the bundled Postgres: the most connections the backends can open at the same time, checked
+against postgresql.maxConnections. The sub-chart renders max_connections in its own context, without the ontrack.*
+values: the chart declares it, and checks it here.
+
+Per backend: its main pool (ontrack.database.poolSize) and the pool of the job locks (20 with the default
+ontrack.config.jobs.pool-size, removed by yontrack/yontrack#2077). With zero-downtime upgrades, one more backend
+during the rollout, and the contract migrations Job (main pool only: it exits before the job locks open), which
+runs while the old pods may still be terminating. Plus a margin for the superuser slots, the metrics exporter and
+admin sessions.
+*/}}
+{{- define "ontrack.database.validate" -}}
+{{- if .Values.postgresql.local }}
+  {{- $replicas := 1 }}
+  {{- $jobLocks := 20 }}
+  {{- $margin := 10 }}
+  {{- $poolSize := int .Values.ontrack.database.poolSize }}
+  {{- $perBackend := add $poolSize $jobLocks }}
+  {{- $backends := $replicas }}
+  {{- $hookJobConnections := 0 }}
+  {{- if .Values.ontrack.zeroDowntimeUpgrades }}
+    {{- $backends = add $replicas 1 }}
+    {{- $hookJobConnections = $poolSize }}
+  {{- end }}
+  {{- $budget := add (mul $backends $perBackend) $hookJobConnections $margin }}
+  {{- $max := int .Values.postgresql.maxConnections }}
+  {{- if gt $budget $max }}
+    {{- $breakdown := printf "%d %s × %d" $backends (ternary "backend" "backends" (eq $backends 1)) $perBackend }}
+    {{- if $hookJobConnections }}
+      {{- $breakdown = printf "%s + hook Job %d" $breakdown $hookJobConnections }}
+    {{- end }}
+    {{- fail (printf "Postgres connections: the backends need up to %d (%s + %d), above postgresql.maxConnections (%d). Raise postgresql.maxConnections or lower ontrack.database.poolSize." $budget $breakdown $margin $max) }}
+  {{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
 Name of the resources of the bundled MinIO
 */}}
 {{- define "ontrack.minio.fullname" -}}

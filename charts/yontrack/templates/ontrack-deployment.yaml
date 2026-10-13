@@ -1,5 +1,6 @@
 {{- include "ontrack.elasticsearch.validate" . }}
 {{- include "ontrack.upgrades.validate" . }}
+{{- include "ontrack.database.validate" . }}
 {{- $zdu := .Values.ontrack.zeroDowntimeUpgrades }}
 {{- $useEmptyDir := and $zdu (not .Values.ontrack.persistence.ephemeral.enabled) }}
 apiVersion: apps/v1
