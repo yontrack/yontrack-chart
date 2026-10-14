@@ -35,6 +35,9 @@ upgrade failed #2" <<< "$LOG"
 check "rolling with a documented outage: the upgrade failures are tolerated" "upgrade tolerated #1
 upgrade tolerated #2" -v disruption=1 <<< "$LOG"
 
+check "rolling: after the end of the upgrade, a failure is one of the steady state" "upgrade failed #1
+steady failed #2" -v upgraded=120 <<< "$LOG"
+
 check "ha: before the end of the upgrade, then of the drain" "upgrade failed #1
 drain failed #2" -v upgraded=120 -v drained=200 -v killed=300 <<< "$LOG"
 

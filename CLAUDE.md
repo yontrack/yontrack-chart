@@ -26,6 +26,9 @@ helm template ontrack charts/yontrack -f values.yaml > template.yaml
 # Same with two replicas on a three-node kind cluster, then a node drain and the loss of a backend pod
 ./scripts/upgrade-test.sh ha
 
+# Tests of the classification of the failed requests of these upgrade tests
+./scripts/upgrade-test/failures-test.sh
+
 # Validate Docker images referenced in the chart are reachable
 ./scripts/check-images.sh
 

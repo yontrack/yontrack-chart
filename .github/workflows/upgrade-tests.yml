@@ -37,6 +37,7 @@ jobs:
           version: v4.1.3
 
       - name: Failure classification tests
+        if: ${{ matrix.mode == 'rolling' }}
         run: |
           chmod +x scripts/upgrade-test/failures-test.sh
           ./scripts/upgrade-test/failures-test.sh

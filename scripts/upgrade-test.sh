@@ -44,12 +44,12 @@ JOB="$BACKEND-contract-migrations"
 BACKEND_PODS="app.kubernetes.io/name=yontrack-chart,app.kubernetes.io/instance=$RELEASE"
 UI_PODS="app.kubernetes.io/name=yontrack-chart-ui,app.kubernetes.io/instance=$RELEASE"
 # Label of the worker running the single-instance services in ha mode, never drained (kind-ha.yaml)
-SERVICES=upgrade-test/services
+SERVICES_LABEL=upgrade-test/services
 # Seconds after the loss of a backend within which the requests must succeed again (ha mode)
 WINDOW=10
 OUT="${OUT:-build/upgrade-test}"
-K=(kubectl --context "kind-$CLUSTER")
-KUBECTL=("${K[@]}" -n "$NS")
+KUBECTL_CLUSTER=(kubectl --context "kind-$CLUSTER")
+KUBECTL=("${KUBECTL_CLUSTER[@]}" -n "$NS")
 HELM=(helm --kube-context "kind-$CLUSTER" -n "$NS")
 VALUES=(-f "$DIR/values.yaml" --set "ontrack.zeroDowntimeUpgrades=$ZDU")
 [ "$MODE" != ha ] || VALUES+=(-f "$DIR/values-ha.yaml")
@@ -66,7 +66,8 @@ DISRUPTION=$(awk -v v="$CURRENT" '$1 == v { $1 = ""; sub(/^ +/, ""); print }' "$
 # Another repository, same tag: the UI image follows the tag of the backend image
 TEST_REPOSITORY=upgrade-test.local/yontrack
 TEST_IMAGE="$TEST_REPOSITORY:$APP_VERSION"
-# Ends of the phases, in epoch seconds of the load pod (see failures.awk)
+# Phases, in epoch seconds of the load pod (see failures.awk): ends of the upgrade and of the drain, and just before
+# the loss of a backend
 UPGRADED=""
 DRAINED=""
 KILLED=""
@@ -105,6 +106,18 @@ graphql() {
         -H "X-Ontrack-Token: $(cat /tmp/token)" --data "$1" "$BACKEND/graphql"' sh "{\"query\":\"$1\"}"
 }
 
+JOBS_QUERY="{ jobs(size: 1000) { pageItems { description runningOn } } }"
+
+# Running jobs, as "<pod> <description>" lines
+running_jobs() {
+    yq -p json -r '.data.jobs.pageItems[] | select(.runningOn != null) | .runningOn + " " + .description' <<< "$(graphql "$JOBS_QUERY")"
+}
+
+# Number of Quartz instances named after a pod (0 once Quartz has recovered a lost one)
+quartz_instances() {
+    sql "select count(*) from qrtz_scheduler_state where instance_name = '$1'"
+}
+
 # Pods matching a selector, as "<pod> <node>" lines
 placement() {
     "${KUBECTL[@]}" get pods -l "$1" --field-selector status.phase=Running \
@@ -118,7 +131,7 @@ pod_logs() {
 
 diagnostics() {
     log "Diagnostics in $OUT"
-    "${K[@]}" get nodes -o wide > "$OUT/nodes.txt" 2>&1 || true
+    "${KUBECTL_CLUSTER[@]}" get nodes -o wide > "$OUT/nodes.txt" 2>&1 || true
     "${KUBECTL[@]}" get all,pdb,events -o wide > "$OUT/resources.txt" 2>&1 || true
     "${KUBECTL[@]}" get events --sort-by=.lastTimestamp \
         -o custom-columns=TIME:.lastTimestamp,REASON:.reason,OBJECT:.involvedObject.name,MESSAGE:.message > "$OUT/events.txt" 2>&1 || true
@@ -147,13 +160,13 @@ if ! grep -qx "$CLUSTER" <<< "$(kind get clusters)"; then
 fi
 
 if [ "$MODE" = ha ]; then
-    [ -n "$("${K[@]}" get nodes -l "$SERVICES" -o name)" ] \
-        || { echo "The kind cluster $CLUSTER has no node labelled $SERVICES: see $DIR/kind-ha.yaml" >&2; exit 1; }
+    [ -n "$("${KUBECTL_CLUSTER[@]}" get nodes -l "$SERVICES_LABEL" -o name)" ] \
+        || { echo "The kind cluster $CLUSTER has no node labelled $SERVICES_LABEL: see $DIR/kind-ha.yaml" >&2; exit 1; }
     # The DNS and the volume provisioner of kind run as single instances: kept off the drained worker
     for deployment in kube-system/coredns local-path-storage/local-path-provisioner; do
-        "${K[@]}" -n "${deployment%/*}" patch deployment "${deployment#*/}" --type merge \
-            -p "{\"spec\":{\"template\":{\"spec\":{\"nodeSelector\":{\"$SERVICES\":\"true\"}}}}}"
-        "${K[@]}" -n "${deployment%/*}" rollout status deployment "${deployment#*/}" --timeout 120s
+        "${KUBECTL_CLUSTER[@]}" -n "${deployment%/*}" patch deployment "${deployment#*/}" --type merge \
+            -p "{\"spec\":{\"template\":{\"spec\":{\"nodeSelector\":{\"$SERVICES_LABEL\":\"true\"}}}}}"
+        "${KUBECTL_CLUSTER[@]}" -n "${deployment%/*}" rollout status deployment "${deployment#*/}" --timeout 120s
     done
 fi
 
@@ -161,8 +174,8 @@ log "Test image $TEST_IMAGE"
 docker build -q --platform "${IMAGE_PLATFORM:-linux/amd64}" --build-arg "BASE_IMAGE=$BASE_IMAGE" -t "$TEST_IMAGE" "$DIR"
 kind load docker-image "$TEST_IMAGE" --name "$CLUSTER"
 
-"${K[@]}" delete namespace "$NS" --ignore-not-found --wait
-"${K[@]}" create namespace "$NS"
+"${KUBECTL_CLUSTER[@]}" delete namespace "$NS" --ignore-not-found --wait
+"${KUBECTL_CLUSTER[@]}" create namespace "$NS"
 
 log "Installing the chart $PREVIOUS"
 "${HELM[@]}" install "$RELEASE" oci://registry-1.docker.io/yontrack/yontrack-chart --version "$PREVIOUS" \
@@ -176,7 +189,7 @@ if [ "$LOAD" = true ]; then
     log "Starting the load"
     "${KUBECTL[@]}" create configmap upgrade-test-load --from-file="$DIR/load.sh"
     if [ "$MODE" = ha ]; then
-        yq ".spec.nodeSelector.\"$SERVICES\" = \"true\"" "$DIR/load-pod.yaml" | "${KUBECTL[@]}" apply -f -
+        yq ".spec.nodeSelector.\"$SERVICES_LABEL\" = \"true\"" "$DIR/load-pod.yaml" | "${KUBECTL[@]}" apply -f -
     else
         "${KUBECTL[@]}" apply -f "$DIR/load-pod.yaml"
     fi
@@ -215,37 +228,41 @@ UPGRADE=0
 
 if [ "$MODE" = ha ]; then
     log "Node drain"
-    NODE=$("${K[@]}" get nodes -l "!$SERVICES,!node-role.kubernetes.io/control-plane" -o jsonpath='{.items[0].metadata.name}')
+    NODE=$("${KUBECTL_CLUSTER[@]}" get nodes -l "!$SERVICES_LABEL,!node-role.kubernetes.io/control-plane" -o jsonpath='{.items[0].metadata.name}')
     placement "$BACKEND_PODS"
     placement "$UI_PODS"
     if ! awk -v node="$NODE" '$2 == node { found = 1 } END { exit !found }' <<< "$(placement "$BACKEND_PODS")"; then
         fail "no backend runs on $NODE: the backends are not spread across the workers"
     else
         DRAIN=0
-        "${K[@]}" drain "$NODE" --ignore-daemonsets --delete-emptydir-data --timeout 10m || DRAIN=$?
+        "${KUBECTL_CLUSTER[@]}" drain "$NODE" --ignore-daemonsets --delete-emptydir-data --timeout 10m || DRAIN=$?
         [ $DRAIN -eq 0 ] || fail "the drain of $NODE exited with $DRAIN"
         "${KUBECTL[@]}" rollout status "deployment/$BACKEND" --timeout 5m || fail "the backend is not available again after the drain"
         "${KUBECTL[@]}" rollout status "deployment/$BACKEND-ui" --timeout 5m || fail "the UI is not available again after the drain"
-        "${K[@]}" uncordon "$NODE"
+        "${KUBECTL_CLUSTER[@]}" uncordon "$NODE"
     fi
     DRAINED=$(load_now)
 
     log "Unplanned loss of a backend"
     # Lets the loops run on the drained topology first
     sleep 20
-    JOBS_QUERY="{ jobs(size: 1000) { pageItems { description runningOn } } }"
-    # Running jobs as "<pod> <description>" lines
-    running_jobs() {
-        yq -p json -r '.data.jobs.pageItems[] | select(.runningOn != null) | .runningOn + " " + .description' <<< "$1"
-    }
     BACKENDS=$(placement "$BACKEND_PODS" | awk '{ print $1 }')
-    # A backend running a job if any, so that Quartz has a run to recover
-    LOST=$(running_jobs "$(graphql "$JOBS_QUERY")" | awk '{ print $1 }' | grep -Fx -f <(echo "$BACKENDS") | head -1 || true)
-    LOST="${LOST:-$(head -1 <<< "$BACKENDS")}"
-    log "Jobs running at the loss of $LOST:"
-    running_jobs "$(graphql "$JOBS_QUERY")" || true
-    [ "$(sql "select count(*) from qrtz_scheduler_state where instance_name = '$LOST'")" = 1 ] \
-        || fail "$LOST is not a Quartz instance"
+    [ -n "$BACKENDS" ] || { fail "no backend runs"; exit 1; }
+    # A backend running a job, so that Quartz has a run to recover: the jobs are short, one may not show up
+    LOST=""
+    for _ in $(seq 1 60); do
+        LOST=$(running_jobs | awk '{ print $1 }' | grep -Fx -f <(echo "$BACKENDS") | head -1 || true)
+        [ -z "$LOST" ] || break
+        sleep 1
+    done
+    if [ -n "$LOST" ]; then
+        log "Jobs running on $LOST at its loss:"
+        running_jobs | grep "^$LOST " || true
+    else
+        LOST=$(head -1 <<< "$BACKENDS")
+        log "No job running at the loss of $LOST: only the recovery of its Quartz instance is checked"
+    fi
+    [ "$(quartz_instances "$LOST")" = 1 ] || fail "$LOST is not a Quartz instance"
     KILLED=$(load_now)
     "${KUBECTL[@]}" delete pod "$LOST" --grace-period=0 --force
 
@@ -254,7 +271,7 @@ if [ "$MODE" = ha ]; then
     RECOVERED=false
     for _ in $(seq 1 60); do
         if [ "$("${KUBECTL[@]}" exec upgrade-test-load -- sh -c \
-            "for kind in query mutation ui; do [ \"\$(cat /tmp/\$kind.ok)\" -ge $((KILLED + WINDOW)) ] || exit 1; done && echo yes" || true)" = yes ]; then
+            "for kind in query mutation ui; do [ \"\$(cat /tmp/\$kind.ok)\" -ge $((KILLED + WINDOW)) ] || exit 1; done && echo yes" 2> /dev/null || true)" = yes ]; then
             RECOVERED=true
             break
         fi
@@ -264,16 +281,16 @@ if [ "$MODE" = ha ]; then
 
     log "Recovery of $LOST by Quartz"
     for _ in $(seq 1 60); do
-        [ "$(sql "select count(*) from qrtz_scheduler_state where instance_name = '$LOST'")" = 0 ] && break
+        [ "$(quartz_instances "$LOST")" = 0 ] && break
         sleep 2
     done
-    if [ "$(sql "select count(*) from qrtz_scheduler_state where instance_name = '$LOST'")" != 0 ]; then
+    if [ "$(quartz_instances "$LOST")" != 0 ]; then
         fail "Quartz did not recover the instance $LOST"
     else
         JOBS=$(graphql "$JOBS_QUERY")
         if [ "$(yq -p json '.data.jobs.pageItems | length' <<< "$JOBS")" = 0 ]; then
             fail "no job listed: $JOBS"
-        elif grep "^$LOST " <<< "$(running_jobs "$JOBS")"; then
+        elif grep "^$LOST " <<< "$(running_jobs)"; then
             fail "jobs still shown running on $LOST"
         fi
     fi
