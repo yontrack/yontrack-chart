@@ -1295,6 +1295,10 @@ more expand and one more contract migration (`scripts/upgrade-test/`):
   succeed, or if `schema_version_contract` does not list the contract migration;
 * `default`: the pod comes back, and both migrations ran at startup.
 
+An upgrade with a documented outage (like 6.0.0-beta.2, which restarts the bundled Postgres) is listed, with its
+reason, in `scripts/upgrade-test/disruptive.txt`: when the chart of the commit has this version, the `rolling` test
+tolerates failed requests, as long as some succeed. The next version is tested against it as usual.
+
 To run them locally (requires `docker`, `kind`, `kubectl`, `helm`, `yq` and `gh`):
 
 ```bash
