@@ -1,6 +1,10 @@
 # Values of the ha upgrade test (scripts/upgrade-test.sh), on top of values.yaml, with ontrack.zeroDowntimeUpgrades: true.
 ontrack:
   replicas: 2
+  # Hard, so that the test fails when a rollout puts both backends on one worker (#179). It also needs
+  # nodeTaintsPolicy: Honor, rendered by the chart: the tainted control-plane node is then not a domain.
+  topologySpread:
+    whenUnsatisfiable: DoNotSchedule
   ui:
     replicas: 2
 # Single instances: on the worker which is never drained (kind-ha.yaml)

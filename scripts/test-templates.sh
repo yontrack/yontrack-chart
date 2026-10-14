@@ -862,8 +862,9 @@ echo "High availability"
 HA=("${ZDU[@]}" --set ontrack.replicas=2)
 ONTRACK_PDB='select(.kind == "PodDisruptionBudget" and .metadata.name == "ontrack-yontrack-chart")'
 UI_PDB='select(.kind == "PodDisruptionBudget" and .metadata.name == "ontrack-yontrack-chart-ui")'
-SOFT_SPREAD='[{"maxSkew":1,"topologyKey":"kubernetes.io/hostname","whenUnsatisfiable":"ScheduleAnyway","labelSelector":{"matchLabels":{"app.kubernetes.io/name":"yontrack-chart","app.kubernetes.io/instance":"ontrack"}}}]'
-SOFT_UI_SPREAD='[{"maxSkew":1,"topologyKey":"kubernetes.io/hostname","whenUnsatisfiable":"ScheduleAnyway","labelSelector":{"matchLabels":{"app.kubernetes.io/name":"yontrack-chart-ui","app.kubernetes.io/instance":"ontrack"}}}]'
+# Counting only the pods of the same ReplicaSet, on the nodes they tolerate (#179)
+SOFT_SPREAD='[{"maxSkew":1,"topologyKey":"kubernetes.io/hostname","whenUnsatisfiable":"ScheduleAnyway","labelSelector":{"matchLabels":{"app.kubernetes.io/name":"yontrack-chart","app.kubernetes.io/instance":"ontrack"}},"matchLabelKeys":["pod-template-hash"],"nodeTaintsPolicy":"Honor"}]'
+SOFT_UI_SPREAD='[{"maxSkew":1,"topologyKey":"kubernetes.io/hostname","whenUnsatisfiable":"ScheduleAnyway","labelSelector":{"matchLabels":{"app.kubernetes.io/name":"yontrack-chart-ui","app.kubernetes.io/instance":"ontrack"}},"matchLabelKeys":["pod-template-hash"],"nodeTaintsPolicy":"Honor"}]'
 
 test_case "By default, one backend and one UI, without disruption budgets nor spread (#168)"
 if render_ok; then
@@ -873,10 +874,11 @@ if render_ok; then
     assert_equals "UI spread" "$(manifests_json "$UI | .spec.template.spec.topologySpreadConstraints")" "null"
 fi
 
-test_case "One backend with zero-downtime upgrades: no backend disruption budget (#168)"
+test_case "One backend with zero-downtime upgrades: no backend disruption budget nor spread (#168, #179)"
 if render_ok "${ZDU[@]}" --set ontrack.replicas=1; then
     assert_equals "backend replicas" "$(manifests "$ONTRACK | .spec.replicas")" "1"
     assert_equals "backend PDB" "$(manifests "$ONTRACK_PDB | .metadata.name")" ""
+    assert_equals "backend spread" "$(manifests_json "$ONTRACK | .spec.template.spec.topologySpreadConstraints")" "null"
 fi
 
 test_case "Two backends with zero-downtime upgrades: a disruption budget and a spread across nodes (#168)"
@@ -901,6 +903,9 @@ if render_ok "${HA[@]}" --set ontrack.topologySpread.whenUnsatisfiable=DoNotSche
     --set ontrack.topologySpread.topologyKey=topology.kubernetes.io/zone; then
     assert_equals "spread" "$(manifests_json "$ONTRACK | .spec.template.spec.topologySpreadConstraints[0] | [.topologyKey, .whenUnsatisfiable]")" \
         '["topology.kubernetes.io/zone","DoNotSchedule"]'
+    assert_equals "per ReplicaSet, on tolerated nodes (#179)" \
+        "$(manifests_json "$ONTRACK | .spec.template.spec.topologySpreadConstraints[0] | [.matchLabelKeys, .nodeTaintsPolicy]")" \
+        '[["pod-template-hash"],"Honor"]'
 fi
 
 test_case "The spread of the backends can be disabled (#168)"
