@@ -1,0 +1,6 @@
+# Chart versions whose upgrade has a documented outage, even with ontrack.zeroDowntimeUpgrades: true.
+# When the chart of the checkout is one of them, the rolling upgrade test tolerates failed requests
+# (scripts/upgrade-test.sh). Its other checks are unchanged.
+#
+# <chart version> <reason>
+6.0.0-beta.2 the bundled Postgres restarts once to apply max_connections (#167)
