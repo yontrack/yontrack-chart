@@ -1,6 +1,6 @@
 # yontrack-chart
 
-![Version: 6.0.0-beta.4](https://img.shields.io/badge/Version-6.0.0--beta.4-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0.0-beta.10](https://img.shields.io/badge/AppVersion-6.0.0--beta.10-informational?style=flat-square)
+![Version: 6.0.0-beta.5](https://img.shields.io/badge/Version-6.0.0--beta.5-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0.0-beta.10](https://img.shields.io/badge/AppVersion-6.0.0--beta.10-informational?style=flat-square)
 
 A Helm chart for Kubernetes
 
@@ -348,6 +348,7 @@ A Helm chart for Kubernetes
 | ontrack.resources.limits.memory | string | `"2Gi"` | Yontrack resources |
 | ontrack.resources.requests.cpu | string | `"800m"` | Yontrack resources |
 | ontrack.topologySpread.enabled | bool | `true` | Spreading the backend pods (`topologySpreadConstraints`, `maxSkew: 1`) |
+| ontrack.topologySpread.minDomains | int | `2` | With `DoNotSchedule` only: below this number of eligible domains, a domain already holding a backend pod cannot take another (`minDomains`), so that one node left (autoscaler scale-down, drain) never takes them all. `0` leaves it out |
 | ontrack.topologySpread.topologyKey | string | `"kubernetes.io/hostname"` | Topology domain the pods are spread across |
 | ontrack.topologySpread.whenUnsatisfiable | string | `"ScheduleAnyway"` | `ScheduleAnyway` (soft: a pod is still scheduled when the spread cannot be kept) or `DoNotSchedule` (hard) |
 | ontrack.ui.config | object | `{"customSignin":true}` | UI configuration |
@@ -362,6 +363,7 @@ A Helm chart for Kubernetes
 | ontrack.ui.resources.requests.memory | string | `"1Gi"` | Next UI resources |
 | ontrack.ui.service.port | int | `3000` | Exposed port for the Yontrack IO |
 | ontrack.ui.topologySpread.enabled | bool | `true` | Spreading the UI pods (`topologySpreadConstraints`, `maxSkew: 1`) |
+| ontrack.ui.topologySpread.minDomains | int | `2` | With `DoNotSchedule` only: below this number of eligible domains, a domain already holding a UI pod cannot take another (`minDomains`), so that one node left (autoscaler scale-down, drain) never takes them all. `0` leaves it out |
 | ontrack.ui.topologySpread.topologyKey | string | `"kubernetes.io/hostname"` | Topology domain the pods are spread across |
 | ontrack.ui.topologySpread.whenUnsatisfiable | string | `"ScheduleAnyway"` | `ScheduleAnyway` (soft: a pod is still scheduled when the spread cannot be kept) or `DoNotSchedule` (hard) |
 | ontrack.url | string | `"http://localhost:3000"` | Yontrack root URL - must point to the UI service |
