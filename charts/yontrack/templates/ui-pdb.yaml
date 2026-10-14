@@ -1,0 +1,14 @@
+{{- if gt (int .Values.ontrack.ui.replicas) 1 }}
+# One UI pod at a time can be evicted (node drain): none at one replica, which would block the drain
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ontrack.fullname" . }}-ui
+  labels:
+    {{- include "ontrack.labels.ui" . | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "ontrack.selectorLabels.ui" . | nindent 6 }}
+{{- end }}

@@ -1,0 +1,14 @@
+{{- if gt (int .Values.ontrack.replicas) 1 }}
+# One backend at a time can be evicted (node drain): none at one replica, which would block the drain
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ontrack.fullname" . }}
+  labels:
+    {{- include "ontrack.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "ontrack.selectorLabels" . | nindent 6 }}
+{{- end }}

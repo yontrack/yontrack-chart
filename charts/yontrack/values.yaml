@@ -2,8 +2,6 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-replicaCount: 1
-
 image:
   # -- Image to use for Yontrack (backend)
   repository: yontrack/yontrack
@@ -158,6 +156,19 @@ ontrack:
   # by a post-install/post-upgrade hook Job once the rollout is done: `helm upgrade` needs `--wait`. Under ArgoCD, the
   # backend rolls out first (sync wave 0), then the UI (wave 1), then the hook Job (`PostSync`).
   zeroDowntimeUpgrades: false
+  # -- Number of backend replicas. Above `1`, requires `ontrack.zeroDowntimeUpgrades: true` (the render fails
+  # otherwise) and Yontrack 6.0.0-beta.8 or later, and adds a PodDisruptionBudget and a spread of the
+  # pods across nodes (`ontrack.topologySpread`). Each replica counts in the connection budget checked against
+  # `postgresql.maxConnections`. See "High availability" in the chart README.
+  replicas: 1
+  # Spread of the backend pods, when `ontrack.replicas` is above `1`
+  topologySpread:
+    # -- Spreading the backend pods (`topologySpreadConstraints`, `maxSkew: 1`)
+    enabled: true
+    # -- Topology domain the pods are spread across
+    topologyKey: kubernetes.io/hostname
+    # -- `ScheduleAnyway` (soft: a pod is still scheduled when the spread cannot be kept) or `DoNotSchedule` (hard)
+    whenUnsatisfiable: ScheduleAnyway
   # Connections of the backend to the database
   database:
     # -- Maximum size of the main connection pool of each backend (`SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE`), also
@@ -170,8 +181,17 @@ ontrack:
     activeDeadlineSeconds: 600
   # Next UI setup
   ui:
-    # -- Number of replicas for the UI (experimental, unless `ontrack.zeroDowntimeUpgrades` is `true`)
+    # -- Number of replicas for the UI (experimental, unless `ontrack.zeroDowntimeUpgrades` is `true`). Above `1`,
+    # adds a PodDisruptionBudget and a spread of the pods across nodes (`ontrack.ui.topologySpread`).
     replicas: 1
+    # Spread of the UI pods, when `ontrack.ui.replicas` is above `1`
+    topologySpread:
+      # -- Spreading the UI pods (`topologySpreadConstraints`, `maxSkew: 1`)
+      enabled: true
+      # -- Topology domain the pods are spread across
+      topologyKey: kubernetes.io/hostname
+      # -- `ScheduleAnyway` (soft: a pod is still scheduled when the spread cannot be kept) or `DoNotSchedule` (hard)
+      whenUnsatisfiable: ScheduleAnyway
     # -- Image to use for the UI
     image: yontrack/yontrack-ui
     # Service
