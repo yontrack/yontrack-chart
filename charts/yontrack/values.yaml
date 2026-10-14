@@ -169,6 +169,9 @@ ontrack:
     topologyKey: kubernetes.io/hostname
     # -- `ScheduleAnyway` (soft: a pod is still scheduled when the spread cannot be kept) or `DoNotSchedule` (hard)
     whenUnsatisfiable: ScheduleAnyway
+    # -- With `DoNotSchedule` only: below this number of eligible domains, a domain already holding a backend pod cannot
+    # take another (`minDomains`), so that one node left (autoscaler scale-down, drain) never takes them all. `0` leaves it out
+    minDomains: 2
   # Connections of the backend to the database
   database:
     # -- Maximum size of the main connection pool of each backend (`SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE`), also
@@ -192,6 +195,9 @@ ontrack:
       topologyKey: kubernetes.io/hostname
       # -- `ScheduleAnyway` (soft: a pod is still scheduled when the spread cannot be kept) or `DoNotSchedule` (hard)
       whenUnsatisfiable: ScheduleAnyway
+      # -- With `DoNotSchedule` only: below this number of eligible domains, a domain already holding a UI pod cannot
+      # take another (`minDomains`), so that one node left (autoscaler scale-down, drain) never takes them all. `0` leaves it out
+      minDomains: 2
     # -- Image to use for the UI
     image: yontrack/yontrack-ui
     # Service

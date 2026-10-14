@@ -908,6 +908,22 @@ if render_ok "${HA[@]}" --set ontrack.topologySpread.whenUnsatisfiable=DoNotSche
         '[["pod-template-hash"],"Honor"]'
 fi
 
+test_case "A hard spread of the backends keeps two domains (#181)"
+if render_ok "${HA[@]}" --set ontrack.topologySpread.whenUnsatisfiable=DoNotSchedule; then
+    assert_equals "min domains" "$(manifests "$ONTRACK | .spec.template.spec.topologySpreadConstraints[0].minDomains")" "2"
+fi
+if render_ok "${HA[@]}" --set ontrack.topologySpread.whenUnsatisfiable=DoNotSchedule --set ontrack.topologySpread.minDomains=3; then
+    assert_equals "min domains" "$(manifests "$ONTRACK | .spec.template.spec.topologySpreadConstraints[0].minDomains")" "3"
+fi
+if render_ok "${HA[@]}" --set ontrack.topologySpread.whenUnsatisfiable=DoNotSchedule --set ontrack.topologySpread.minDomains=0; then
+    assert_equals "no min domains" "$(manifests_json "$ONTRACK | .spec.template.spec.topologySpreadConstraints[0] | has(\"minDomains\")")" "false"
+fi
+
+test_case "A soft spread of the backends has no min domains, which the API rejects with ScheduleAnyway (#181)"
+if render_ok "${HA[@]}" --set ontrack.topologySpread.minDomains=3; then
+    assert_equals "no min domains" "$(manifests_json "$ONTRACK | .spec.template.spec.topologySpreadConstraints[0] | has(\"minDomains\")")" "false"
+fi
+
 test_case "The spread of the backends can be disabled (#168)"
 if render_ok "${HA[@]}" --set ontrack.topologySpread.enabled=false; then
     assert_equals "spread" "$(manifests_json "$ONTRACK | .spec.template.spec.topologySpreadConstraints")" "null"
@@ -927,6 +943,17 @@ if render_ok --set ontrack.ui.replicas=2 --set ontrack.ui.topologySpread.whenUns
 fi
 if render_ok --set ontrack.ui.replicas=2 --set ontrack.ui.topologySpread.enabled=false; then
     assert_equals "UI spread" "$(manifests_json "$UI | .spec.template.spec.topologySpreadConstraints")" "null"
+fi
+
+test_case "A hard spread of the UIs keeps two domains, a soft one has no min domains (#181)"
+if render_ok --set ontrack.ui.replicas=2 --set ontrack.ui.topologySpread.whenUnsatisfiable=DoNotSchedule; then
+    assert_equals "UI min domains" "$(manifests "$UI | .spec.template.spec.topologySpreadConstraints[0].minDomains")" "2"
+fi
+if render_ok --set ontrack.ui.replicas=2 --set ontrack.ui.topologySpread.whenUnsatisfiable=DoNotSchedule --set ontrack.ui.topologySpread.minDomains=0; then
+    assert_equals "UI no min domains" "$(manifests_json "$UI | .spec.template.spec.topologySpreadConstraints[0] | has(\"minDomains\")")" "false"
+fi
+if render_ok --set ontrack.ui.replicas=2; then
+    assert_equals "UI soft, no min domains" "$(manifests_json "$UI | .spec.template.spec.topologySpreadConstraints[0] | has(\"minDomains\")")" "false"
 fi
 
 test_case "The connection budget counts every backend, and the surge (#168)"

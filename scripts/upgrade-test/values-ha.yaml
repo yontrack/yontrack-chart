@@ -2,7 +2,8 @@
 ontrack:
   replicas: 2
   # Hard, so that the test fails when a rollout puts both backends on one worker (#179). It also needs
-  # nodeTaintsPolicy: Honor, rendered by the chart: the tainted control-plane node is then not a domain.
+  # nodeTaintsPolicy: Honor, rendered by the chart: the tainted control-plane node is then not a domain. With the
+  # default minDomains (2), the backend evicted by the drain waits for the worker to be uncordoned (#181).
   topologySpread:
     whenUnsatisfiable: DoNotSchedule
   ui:
