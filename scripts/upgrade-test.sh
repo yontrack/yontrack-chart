@@ -43,6 +43,8 @@ MAJOR="${CURRENT%%.*}"
 PREVIOUS="${PREVIOUS_CHART_VERSION:-$(gh release list --exclude-drafts --limit 100 --json tagName --jq "[.[].tagName | select(. != \"$CURRENT\" and startswith(\"$MAJOR.\"))][0]")}"
 [ -n "$PREVIOUS" ] || { echo "No previous $MAJOR.x release" >&2; exit 1; }
 BASE_IMAGE="${BASE_IMAGE:-yontrack/yontrack:$APP_VERSION}"
+# Documented outage of the upgrade to this version, if any (failed requests are then expected)
+DISRUPTION=$(awk -v v="$CURRENT" '$1 == v { $1 = ""; sub(/^ +/, ""); print }' "$DIR/disruptive.txt")
 # Another repository, same tag: the UI image follows the tag of the backend image
 TEST_REPOSITORY=upgrade-test.local/yontrack
 TEST_IMAGE="$TEST_REPOSITORY:$APP_VERSION"
@@ -88,6 +90,7 @@ on_exit() {
 trap on_exit EXIT
 
 log "Mode $MODE: chart $PREVIOUS -> $CURRENT, backend image $BASE_IMAGE + test migrations"
+[ -z "$DISRUPTION" ] || log "Documented outage of the upgrade to $CURRENT: $DISRUPTION"
 
 if ! grep -qx "$CLUSTER" <<< "$(kind get clusters)"; then
     kind create cluster --name "$CLUSTER" --wait 120s
@@ -155,7 +158,11 @@ if [ "$MODE" = rolling ]; then
         if [ -z "$summary" ]; then
             fail "no summary for the $kind requests"
         elif ! [[ "$summary" =~ ok=[1-9][0-9]*\ failed=0$ ]]; then
-            fail "$summary"
+            if [ -n "$DISRUPTION" ] && [[ "$summary" =~ ok=[1-9][0-9]*\  ]]; then
+                log "Expected ($DISRUPTION): $summary"
+            else
+                fail "$summary"
+            fi
         fi
     done
     if grep -q '^FAIL' "$OUT/load.log"; then
