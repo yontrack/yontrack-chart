@@ -1,0 +1,13 @@
+# Values of the ha upgrade test (scripts/upgrade-test.sh), on top of values.yaml, with ontrack.zeroDowntimeUpgrades: true.
+ontrack:
+  replicas: 2
+  ui:
+    replicas: 2
+# Single instances: on the worker which is never drained (kind-ha.yaml)
+postgresql:
+  primary:
+    nodeSelector:
+      upgrade-test/services: "true"
+rabbitmq:
+  nodeSelector:
+    upgrade-test/services: "true"

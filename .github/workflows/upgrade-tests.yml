@@ -3,7 +3,8 @@ name: Upgrade tests
 # Upgrades the previous published chart to the chart of the commit, on a kind cluster (#151):
 # - rolling: `ontrack.zeroDowntimeUpgrades: true`, under load, fails on any failed request, and checks
 #   that the hook Job runs the contract migration;
-# - default: the pod comes back, and both migrations run at startup.
+# - default: the pod comes back, and both migrations run at startup;
+# - ha: as rolling, with two backends on two workers, then a node drain and the loss of a backend pod (#169).
 # See scripts/upgrade-test.sh.
 
 on:
@@ -19,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [ rolling, default ]
+        mode: [ rolling, default, ha ]
     name: upgrade (${{ matrix.mode }})
     steps:
       - name: Checkout
@@ -35,10 +36,16 @@ jobs:
         with:
           version: v4.1.3
 
-      - name: Kind cluster
+      - name: Failure classification tests
+        run: |
+          chmod +x scripts/upgrade-test/failures-test.sh
+          ./scripts/upgrade-test/failures-test.sh
+
+      # The cluster of each mode is created by the test (one or three nodes)
+      - name: Kind
         uses: helm/kind-action@v1
         with:
-          cluster_name: yt-upgrade
+          install_only: true
 
       - name: Upgrade test
         run: |

@@ -1286,18 +1286,25 @@ are run by the CI and can be run locally (requires `helm`, `jq` and `yq`):
 ## Upgrade tests
 
 The CI upgrades the previous published chart to the chart of the commit on a [kind](https://kind.sigs.k8s.io/)
-cluster, in both modes (`.github/workflows/upgrade-tests.yml`). The backend image is the one of the chart, with one
+cluster, in three modes (`.github/workflows/upgrade-tests.yml`). The backend image is the one of the chart, with one
 more expand and one more contract migration (`scripts/upgrade-test/`):
 
 * `rolling`: with `ontrack.zeroDowntimeUpgrades: true`, GraphQL queries and mutations on the backend and `GET /` on
   the UI run during the upgrade. They read and create predefined validation stamps: creating a project needs a valid
   license, and the default evaluation key has expired. The test fails on any failed request, if the contract migrations Job does not
   succeed, or if `schema_version_contract` does not list the contract migration;
-* `default`: the pod comes back, and both migrations ran at startup.
+* `default`: the pod comes back, and both migrations ran at startup;
+* `ha`: as `rolling`, with `ontrack.replicas: 2` and two UIs, on a kind cluster with two workers
+  (`scripts/upgrade-test/kind-ha.yaml`, the single-instance services on the first one). Still under load, it then
+  drains the other worker (no request may fail, the drain must complete), and force-deletes a backend pod
+  (`--grace-period=0`): only the requests in flight on it, or started within 10 s after it, may fail; a request of
+  each kind started after these 10 s must succeed; once Quartz has recovered the lost instance, the `jobs` GraphQL
+  query shows no job running on it. A previous chart without `ontrack.replicas` runs one backend: the upgrade then
+  goes from one to two.
 
 An upgrade with a documented outage (like 6.0.0-beta.2, which restarts the bundled Postgres) is listed, with its
-reason, in `scripts/upgrade-test/disruptive.txt`: when the chart of the commit has this version, the `rolling` test
-tolerates failed requests, as long as some succeed. The next version is tested against it as usual.
+reason, in `scripts/upgrade-test/disruptive.txt`: when the chart of the commit has this version, the `rolling` and `ha`
+tests tolerate failed requests during the upgrade, as long as some succeed. The next version is tested against it as usual.
 
 To run them locally (requires `docker`, `kind`, `kubectl`, `helm`, `yq` and `gh`):
 
@@ -1305,7 +1312,8 @@ To run them locally (requires `docker`, `kind`, `kubectl`, `helm`, `yq` and `gh`
 ./scripts/upgrade-test.sh rolling
 ```
 
-The kind cluster (`yt-upgrade`) is created if missing, and kept. `PREVIOUS_CHART_VERSION` and `BASE_IMAGE` change the
+The kind cluster (`yt-upgrade`, `yt-ha` for `ha`) is created if missing, and kept. The classification of the failed
+requests by phase has its own tests: `./scripts/upgrade-test/failures-test.sh`. `PREVIOUS_CHART_VERSION` and `BASE_IMAGE` change the
 chart to upgrade from and the backend image under test.
 
 ## Documentation generation

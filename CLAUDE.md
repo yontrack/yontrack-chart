@@ -23,6 +23,9 @@ helm template ontrack charts/yontrack -f values.yaml > template.yaml
 # Upgrade the previous published chart to this one on a kind cluster (rolling: zero-downtime, under load; default)
 ./scripts/upgrade-test.sh rolling
 
+# Same with two replicas on a three-node kind cluster, then a node drain and the loss of a backend pod
+./scripts/upgrade-test.sh ha
+
 # Validate Docker images referenced in the chart are reachable
 ./scripts/check-images.sh
 
