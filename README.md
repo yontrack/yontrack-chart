@@ -1138,35 +1138,45 @@ The UI gets the same `PodDisruptionBudget` and spread when `ontrack.ui.replicas`
 A single replica with `ontrack.zeroDowntimeUpgrades: true` is still supported: upgrades have no downtime, but a node
 drain causes a short outage.
 
+The middleware deployed by the chart still runs as single instances: the bundled Postgres, RabbitMQ, the Postgres
+of the local Keycloak (Keycloak itself can run several pods, see [Keycloak replicas](#keycloak-replicas)) and the
+bundled MinIO. A drain of their node still interrupts Yontrack. Where it must not, use external or managed services:
+a [managed database](#using-a-managed-database), an [external S3-compatible storage](#external-s3-compatible-storage)
+and an [external OIDC provider](#oidc-for-okta). RabbitMQ is always deployed by the chart.
+
 ## Spread of the pods
 
 The spread of the backends (and of the UIs) is checked by the scheduler when it places a pod, with a skew of at most 1
-between the topology domains (the nodes, by default). Two fields, rendered by the chart, decide what it counts:
+between the topology domains (the nodes, by default). Fields rendered by the chart decide what it counts:
 
 * `matchLabelKeys: [pod-template-hash]`: only the pods of the same ReplicaSet are counted. During a rollout, the new pods
   spread among themselves, whatever the outgoing ones do. Without it, each step of the rollout keeps the skew while
   counting pods about to go away, and on nodes which are not evenly loaded the new pods end up on the same node
   ([#179](https://github.com/yontrack/yontrack-chart/issues/179)).
 * `nodeTaintsPolicy: Honor`: the nodes whose taints the pods do not tolerate (a pool reserved for system pods, for
-  example) are not domains. Holding none of the pods, they would keep the minimum at 0, and a hard spread would then
-  block every new pod until a node without any is available.
+  example, or a cordoned node) are not domains. Holding none of the pods, they would keep the minimum at 0, and a hard
+  spread would then block every new pod until a node without any is available.
+* `minDomains` (`ontrack.topologySpread.minDomains`, `2` by default), with a hard spread only (the API rejects it with
+  `ScheduleAnyway`): below this number of eligible domains, a domain already holding a pod cannot take another. Without
+  it, a single domain left satisfies any spread, and takes every pod: when a cluster autoscaler removes the node of one
+  of the backends (one backend leaves its node mostly idle), or when a drain cordons it
+  ([#181](https://github.com/yontrack/yontrack-chart/issues/181)). With three replicas, two nodes still take them (2/1).
+  Set it to `0` to leave it out.
 
-Both need Kubernetes 1.27 or later (`matchLabelKeys` is beta, and on by default, since 1.27; `nodeTaintsPolicy` since
-1.26, stable since 1.33). Older versions ignore or reject them. With one replica, the chart renders no spread, and the
-Kubernetes 1.24 minimum of the chart stays.
+`matchLabelKeys` and `nodeTaintsPolicy` need Kubernetes 1.27 or later (`matchLabelKeys` is beta, and on by default,
+since 1.27; `nodeTaintsPolicy` since 1.26, stable since 1.33), and `minDomains` is stable since 1.30. Older versions
+ignore or reject them. With one replica, the chart renders no spread, and the Kubernetes 1.24 minimum of the chart stays.
 
 The spread is only checked when a pod is placed: nothing moves the pods afterwards. When a backend is rescheduled
-while no other node can take it (during a drain, the drained node is cordoned and a new one may still be starting),
-a soft spread places it next to the other one, where it stays. A hard spread keeps it pending instead, the other
-backend serving, until a node is available (with a cluster autoscaler, it adds one). To spread pods placed this way
-again, restart the backends (`kubectl rollout restart deployment/<release>-yontrack-chart`), or use a
-[descheduler](https://github.com/kubernetes-sigs/descheduler).
+while no other node can take it (during a drain, the drained node is cordoned and a new one may still be starting):
 
-The middleware deployed by the chart still runs as single instances: the bundled Postgres, RabbitMQ, the Postgres
-of the local Keycloak (Keycloak itself can run several pods, see [Keycloak replicas](#keycloak-replicas)) and the
-bundled MinIO. A drain of their node still interrupts Yontrack. Where it must not, use external or managed services:
-a [managed database](#using-a-managed-database), an [external S3-compatible storage](#external-s3-compatible-storage)
-and an [external OIDC provider](#oidc-for-okta). RabbitMQ is always deployed by the chart.
+* a soft spread (the default) places it next to the other one, where it stays. To spread pods placed this way again,
+  restart the backends (`kubectl rollout restart deployment/<release>-yontrack-chart`), or use a
+  [descheduler](https://github.com/kubernetes-sigs/descheduler).
+* a hard spread keeps it pending, the other backend serving, until a node is available: a cluster autoscaler adds one,
+  and without one, it waits until the drained node is uncordoned. A cluster autoscaler also keeps a node for each
+  backend, instead of removing one to put them together. A hard spread therefore needs at least `minDomains`
+  schedulable nodes.
 
 # Upgrading to 6.x
 
@@ -1218,6 +1228,7 @@ kubectl delete pvc data-<release>-elasticsearch-master-0
 * [Connection budget](#database-connections) of the backends, checked against `postgresql.maxConnections` with the bundled Postgres
 * [High availability](#high-availability): several backends with `ontrack.replicas`, with disruption budgets and a spread across nodes for the backend and the UI. The unused `replicaCount` value is removed.
 * [Spread of the pods](#spread-of-the-pods) per ReplicaSet (`matchLabelKeys: [pod-template-hash]`) and on the nodes the pods tolerate (`nodeTaintsPolicy: Honor`), so that rollouts no longer put the new pods on one node. Several replicas need Kubernetes 1.27 or later.
+* A hard [spread of the pods](#spread-of-the-pods) keeps at least two domains (`minDomains`, `ontrack.topologySpread.minDomains`), so that one node left never takes all the pods.
 * See [Upgrading to 6.x](#upgrading-to-6x)
 
 ## 1.0

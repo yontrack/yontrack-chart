@@ -244,9 +244,17 @@ if [ "$MODE" = ha ]; then
         DRAIN=0
         "${KUBECTL_CLUSTER[@]}" drain "$NODE" --ignore-daemonsets --delete-emptydir-data --timeout 10m || DRAIN=$?
         [ $DRAIN -eq 0 ] || fail "the drain of $NODE exited with $DRAIN"
+        # The evicted backend waits for a node, the other one serving: with one worker left, below minDomains (2), its
+        # node cannot take a second backend (#181)
+        sleep 15
+        SCHEDULED=$("${KUBECTL[@]}" get pods -l "$BACKEND_PODS" \
+            -o jsonpath='{range .items[*]}{.metadata.name} {.spec.nodeName}{"\n"}{end}')
+        echo "$SCHEDULED"
+        [ "$(awk 'NF == 2' <<< "$SCHEDULED" | wc -l | tr -d ' ')" = 1 ] \
+            || fail "the evicted backend did not wait for a node: the backends share the remaining worker"
+        "${KUBECTL_CLUSTER[@]}" uncordon "$NODE"
         "${KUBECTL[@]}" rollout status "deployment/$BACKEND" --timeout 5m || fail "the backend is not available again after the drain"
         "${KUBECTL[@]}" rollout status "deployment/$BACKEND-ui" --timeout 5m || fail "the UI is not available again after the drain"
-        "${KUBECTL_CLUSTER[@]}" uncordon "$NODE"
     fi
     DRAINED=$(load_now)
 

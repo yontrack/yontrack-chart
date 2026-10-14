@@ -407,6 +407,10 @@ Parameters: replicas, spread (topologySpread values), selectorLabels (rendered s
 Only the pods of the same ReplicaSet are counted (matchLabelKeys: pod-template-hash): counting the outgoing ones lets
 every step of a rollout keep the skew while the new pods end up on one node (#179). The nodes whose taints the pods do
 not tolerate are not domains (nodeTaintsPolicy: Honor): holding none of the pods, they would pin the minimum at 0.
+
+A hard spread also needs minDomains (#181): with a single eligible domain left (the autoscaler removing the other node,
+or a drain cordoning it), any number of pods fits on it. Below minDomains domains, the minimum counts as 0, so a domain
+already holding a pod of the ReplicaSet cannot take another. The API only accepts it with DoNotSchedule.
 */}}
 {{- define "ontrack.topologySpreadConstraints" -}}
 {{- if and (gt (int .replicas) 1) .spread.enabled }}
@@ -414,6 +418,11 @@ topologySpreadConstraints:
   - maxSkew: 1
     topologyKey: {{ .spread.topologyKey }}
     whenUnsatisfiable: {{ .spread.whenUnsatisfiable }}
+    {{- if eq .spread.whenUnsatisfiable "DoNotSchedule" }}
+    {{- with .spread.minDomains }}
+    minDomains: {{ int . }}
+    {{- end }}
+    {{- end }}
     labelSelector:
       matchLabels:
         {{- .selectorLabels | nindent 8 }}
