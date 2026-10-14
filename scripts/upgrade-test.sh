@@ -231,6 +231,13 @@ if [ "$MODE" = ha ]; then
     NODE=$("${KUBECTL_CLUSTER[@]}" get nodes -l "!$SERVICES_LABEL,!node-role.kubernetes.io/control-plane" -o jsonpath='{.items[0].metadata.name}')
     placement "$BACKEND_PODS"
     placement "$UI_PODS"
+    # The rollout spreads the new backends among themselves, whatever the old ones did (#179). Only the pods of the
+    # current ReplicaSet: the old ones may still be terminating.
+    HASH=$("${KUBECTL[@]}" get pods -l "$BACKEND_PODS" --sort-by=.metadata.creationTimestamp \
+        -o jsonpath='{range .items[*]}{.metadata.labels.pod-template-hash}{"\n"}{end}' | tail -1)
+    if [ -n "$(placement "$BACKEND_PODS,pod-template-hash=$HASH" | awk '{ print $2 }' | sort | uniq -d)" ]; then
+        fail "the backends of the rollout share a node"
+    fi
     if ! awk -v node="$NODE" '$2 == node { found = 1 } END { exit !found }' <<< "$(placement "$BACKEND_PODS")"; then
         fail "no backend runs on $NODE: the backends are not spread across the workers"
     else

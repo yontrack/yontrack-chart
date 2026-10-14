@@ -1123,9 +1123,11 @@ request, while the unplanned loss of a pod fails the requests in flight on it.
 * the backend needs Yontrack 6.0.0-beta.8 or later, the first release with the changes of the HA initiative
   (yontrack/yontrack#2076 to #2088). The chart does not check the version.
 * a `PodDisruptionBudget` lets one backend pod at a time be evicted (`maxUnavailable: 1`), and the pods are spread
-  across nodes (`topologySpreadConstraints`, see `ontrack.topologySpread`). The spread is soft by default
-  (`ScheduleAnyway`): set `ontrack.topologySpread.whenUnsatisfiable: DoNotSchedule` to make it hard, and
-  `ontrack.topologySpread.topologyKey` to spread across zones instead of nodes.
+  across nodes (`topologySpreadConstraints`, see `ontrack.topologySpread` and [Spread of the pods](#spread-of-the-pods)).
+  The spread is soft by default (`ScheduleAnyway`): set `ontrack.topologySpread.whenUnsatisfiable: DoNotSchedule` to
+  make it hard, and `ontrack.topologySpread.topologyKey` to spread across zones instead of nodes.
+* the cluster needs Kubernetes 1.27 or later, for the fields of the spread (see below). The chart does not check the
+  version.
 * each replica counts in the [connection budget](#database-connections): with the defaults, two replicas need up to
   130 connections, within the default `postgresql.maxConnections` (150) of the bundled database. Three need 160:
   raise `postgresql.maxConnections`, or lower `ontrack.database.poolSize`.
@@ -1135,6 +1137,30 @@ The UI gets the same `PodDisruptionBudget` and spread when `ontrack.ui.replicas`
 
 A single replica with `ontrack.zeroDowntimeUpgrades: true` is still supported: upgrades have no downtime, but a node
 drain causes a short outage.
+
+## Spread of the pods
+
+The spread of the backends (and of the UIs) is checked by the scheduler when it places a pod, with a skew of at most 1
+between the topology domains (the nodes, by default). Two fields, rendered by the chart, decide what it counts:
+
+* `matchLabelKeys: [pod-template-hash]`: only the pods of the same ReplicaSet are counted. During a rollout, the new pods
+  spread among themselves, whatever the outgoing ones do. Without it, each step of the rollout keeps the skew while
+  counting pods about to go away, and on nodes which are not evenly loaded the new pods end up on the same node
+  ([#179](https://github.com/yontrack/yontrack-chart/issues/179)).
+* `nodeTaintsPolicy: Honor`: the nodes whose taints the pods do not tolerate (a pool reserved for system pods, for
+  example) are not domains. Holding none of the pods, they would keep the minimum at 0, and a hard spread would then
+  block every new pod until a node without any is available.
+
+Both need Kubernetes 1.27 or later (`matchLabelKeys` is beta, and on by default, since 1.27; `nodeTaintsPolicy` since
+1.26, stable since 1.33). Older versions ignore or reject them. With one replica, the chart renders no spread, and the
+Kubernetes 1.24 minimum of the chart stays.
+
+The spread is only checked when a pod is placed: nothing moves the pods afterwards. When a backend is rescheduled
+while no other node can take it (during a drain, the drained node is cordoned and a new one may still be starting),
+a soft spread places it next to the other one, where it stays. A hard spread keeps it pending instead, the other
+backend serving, until a node is available (with a cluster autoscaler, it adds one). To spread pods placed this way
+again, restart the backends (`kubectl rollout restart deployment/<release>-yontrack-chart`), or use a
+[descheduler](https://github.com/kubernetes-sigs/descheduler).
 
 The middleware deployed by the chart still runs as single instances: the bundled Postgres, RabbitMQ, the Postgres
 of the local Keycloak (Keycloak itself can run several pods, see [Keycloak replicas](#keycloak-replicas)) and the
@@ -1191,6 +1217,7 @@ kubectl delete pvc data-<release>-elasticsearch-master-0
 * [Contract migrations](#contract-migrations) in a post-upgrade hook Job, and [rollout order](#rollout-order) under ArgoCD, for zero-downtime upgrades
 * [Connection budget](#database-connections) of the backends, checked against `postgresql.maxConnections` with the bundled Postgres
 * [High availability](#high-availability): several backends with `ontrack.replicas`, with disruption budgets and a spread across nodes for the backend and the UI. The unused `replicaCount` value is removed.
+* [Spread of the pods](#spread-of-the-pods) per ReplicaSet (`matchLabelKeys: [pod-template-hash]`) and on the nodes the pods tolerate (`nodeTaintsPolicy: Honor`), so that rollouts no longer put the new pods on one node. Several replicas need Kubernetes 1.27 or later.
 * See [Upgrading to 6.x](#upgrading-to-6x)
 
 ## 1.0

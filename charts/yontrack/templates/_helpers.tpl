@@ -403,6 +403,10 @@ Several backends need this mode (one volume per pod, rolling update): it is neve
 {{/*
 Spread of the pods of a workload across topology domains, when it runs more than one replica.
 Parameters: replicas, spread (topologySpread values), selectorLabels (rendered selector labels of the pods).
+
+Only the pods of the same ReplicaSet are counted (matchLabelKeys: pod-template-hash): counting the outgoing ones lets
+every step of a rollout keep the skew while the new pods end up on one node (#179). The nodes whose taints the pods do
+not tolerate are not domains (nodeTaintsPolicy: Honor): holding none of the pods, they would pin the minimum at 0.
 */}}
 {{- define "ontrack.topologySpreadConstraints" -}}
 {{- if and (gt (int .replicas) 1) .spread.enabled }}
@@ -413,6 +417,9 @@ topologySpreadConstraints:
     labelSelector:
       matchLabels:
         {{- .selectorLabels | nindent 8 }}
+    matchLabelKeys:
+      - pod-template-hash
+    nodeTaintsPolicy: Honor
 {{- end }}
 {{- end }}
 
