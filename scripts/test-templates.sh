@@ -842,19 +842,92 @@ test_case "Zero-downtime upgrades: the bundled Postgres has room for two backend
 render_ok "${ZDU[@]}"
 
 test_case "Zero-downtime upgrades: a budget above postgresql.maxConnections fails the render (#167)"
-render_fails_with "the backends need up to 170 (2 backends × 60 + hook Job 40 + 10), above postgresql.maxConnections (150)" \
-    "${ZDU[@]}" --set ontrack.database.poolSize=40
+render_fails_with "the backends need up to 160 (2 backends × 50 + hook Job 50 + 10), above postgresql.maxConnections (150)" \
+    "${ZDU[@]}" --set ontrack.database.poolSize=50
 
 test_case "Zero-downtime upgrades: a budget equal to postgresql.maxConnections renders (#167)"
-render_ok "${ZDU[@]}" --set ontrack.database.poolSize=40 --set postgresql.maxConnections=170
+render_ok "${ZDU[@]}" --set ontrack.database.poolSize=50 --set postgresql.maxConnections=160
 
 test_case "Default mode: a budget above postgresql.maxConnections fails the render (#167)"
 render_fails_with "the backends need up to 160 (1 backend × 150 + 10), above postgresql.maxConnections (150)" \
-    --set ontrack.database.poolSize=130
+    --set ontrack.database.poolSize=150
 
 test_case "External Postgres: no check on the connections (#167)"
 render_ok "${ZDU[@]}" --set ontrack.database.poolSize=500 \
     --set postgresql.local=false --set postgresql.postgresqlUrl=jdbc:postgresql://db/yontrack
+
+echo "High availability"
+
+# Two backends: two values, the defaults of the bundled Postgres have room for them
+HA=("${ZDU[@]}" --set ontrack.replicas=2)
+ONTRACK_PDB='select(.kind == "PodDisruptionBudget" and .metadata.name == "ontrack-yontrack-chart")'
+UI_PDB='select(.kind == "PodDisruptionBudget" and .metadata.name == "ontrack-yontrack-chart-ui")'
+SOFT_SPREAD='[{"maxSkew":1,"topologyKey":"kubernetes.io/hostname","whenUnsatisfiable":"ScheduleAnyway","labelSelector":{"matchLabels":{"app.kubernetes.io/name":"yontrack-chart","app.kubernetes.io/instance":"ontrack"}}}]'
+SOFT_UI_SPREAD='[{"maxSkew":1,"topologyKey":"kubernetes.io/hostname","whenUnsatisfiable":"ScheduleAnyway","labelSelector":{"matchLabels":{"app.kubernetes.io/name":"yontrack-chart-ui","app.kubernetes.io/instance":"ontrack"}}}]'
+
+test_case "By default, one backend and one UI, without disruption budgets nor spread (#168)"
+if render_ok; then
+    assert_equals "backend replicas" "$(manifests "$ONTRACK | .spec.replicas")" "1"
+    assert_equals "PDBs" "$(manifests 'select(.kind == "PodDisruptionBudget" and (.metadata.name | test("^ontrack-yontrack-chart"))) | .metadata.name')" ""
+    assert_equals "backend spread" "$(manifests_json "$ONTRACK | .spec.template.spec.topologySpreadConstraints")" "null"
+    assert_equals "UI spread" "$(manifests_json "$UI | .spec.template.spec.topologySpreadConstraints")" "null"
+fi
+
+test_case "One backend with zero-downtime upgrades: no backend disruption budget (#168)"
+if render_ok "${ZDU[@]}" --set ontrack.replicas=1; then
+    assert_equals "backend replicas" "$(manifests "$ONTRACK | .spec.replicas")" "1"
+    assert_equals "backend PDB" "$(manifests "$ONTRACK_PDB | .metadata.name")" ""
+fi
+
+test_case "Two backends with zero-downtime upgrades: a disruption budget and a spread across nodes (#168)"
+if render_ok "${HA[@]}"; then
+    assert_equals "backend replicas" "$(manifests "$ONTRACK | .spec.replicas")" "2"
+    assert_equals "strategy" "$(manifests_json "$ONTRACK | .spec.strategy")" "$ROLLING"
+    assert_equals "PDB max unavailable" "$(manifests "$ONTRACK_PDB | .spec.maxUnavailable")" "1"
+    assert_equals "PDB selector" "$(manifests_json "$ONTRACK_PDB | .spec.selector")" "$(manifests_json "$ONTRACK | .spec.selector")"
+    assert_equals "backend spread" "$(manifests_json "$ONTRACK | .spec.template.spec.topologySpreadConstraints")" "$SOFT_SPREAD"
+    assert_equals "UI PDB" "$(manifests "$UI_PDB | .metadata.name")" ""
+fi
+
+test_case "Several backends need zero-downtime upgrades (#168)"
+render_fails_with "ontrack.replicas above 1 requires ontrack.zeroDowntimeUpgrades: true" --set ontrack.replicas=2
+
+test_case "Several backends need a key store outside the data volume (#168)"
+render_fails_with "ontrack.zeroDowntimeUpgrades requires ontrack.config.key_store to be jdbc or secret" \
+    "${HA[@]}" --set ontrack.config.key_store=file
+
+test_case "The spread of the backends can be hard, on another topology key (#168)"
+if render_ok "${HA[@]}" --set ontrack.topologySpread.whenUnsatisfiable=DoNotSchedule \
+    --set ontrack.topologySpread.topologyKey=topology.kubernetes.io/zone; then
+    assert_equals "spread" "$(manifests_json "$ONTRACK | .spec.template.spec.topologySpreadConstraints[0] | [.topologyKey, .whenUnsatisfiable]")" \
+        '["topology.kubernetes.io/zone","DoNotSchedule"]'
+fi
+
+test_case "The spread of the backends can be disabled (#168)"
+if render_ok "${HA[@]}" --set ontrack.topologySpread.enabled=false; then
+    assert_equals "spread" "$(manifests_json "$ONTRACK | .spec.template.spec.topologySpreadConstraints")" "null"
+fi
+
+test_case "Two UIs: a disruption budget and a spread across nodes (#168)"
+if render_ok --set ontrack.ui.replicas=2; then
+    assert_equals "UI PDB max unavailable" "$(manifests "$UI_PDB | .spec.maxUnavailable")" "1"
+    assert_equals "UI PDB selector" "$(manifests_json "$UI_PDB | .spec.selector")" "$(manifests_json "$UI | .spec.selector")"
+    assert_equals "UI spread" "$(manifests_json "$UI | .spec.template.spec.topologySpreadConstraints")" "$SOFT_UI_SPREAD"
+    assert_equals "backend PDB" "$(manifests "$ONTRACK_PDB | .metadata.name")" ""
+fi
+
+test_case "The spread of the UIs can be hard, or disabled (#168)"
+if render_ok --set ontrack.ui.replicas=2 --set ontrack.ui.topologySpread.whenUnsatisfiable=DoNotSchedule; then
+    assert_equals "UI spread" "$(manifests "$UI | .spec.template.spec.topologySpreadConstraints[0].whenUnsatisfiable")" "DoNotSchedule"
+fi
+if render_ok --set ontrack.ui.replicas=2 --set ontrack.ui.topologySpread.enabled=false; then
+    assert_equals "UI spread" "$(manifests_json "$UI | .spec.template.spec.topologySpreadConstraints")" "null"
+fi
+
+test_case "The connection budget counts every backend, and the surge (#168)"
+render_fails_with "the backends need up to 160 (4 backends × 30 + hook Job 30 + 10), above postgresql.maxConnections (150)" \
+    "${ZDU[@]}" --set ontrack.replicas=3
+render_ok "${ZDU[@]}" --set ontrack.replicas=3 --set postgresql.maxConnections=160
 
 echo "UI sign-out"
 

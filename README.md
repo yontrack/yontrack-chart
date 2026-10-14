@@ -45,6 +45,12 @@ This Helm chart is compatible with Helm 3 and allows the installation of Yontrac
 * [OpenShift support](#openshift-support)
 * [GitOps / rendered manifests](#gitops--rendered-manifests)
 * [Zero-downtime upgrades](#zero-downtime-upgrades)
+  * [Database connections](#database-connections)
+    * [Bundled database](#bundled-database)
+    * [External database](#external-database)
+  * [Contract migrations](#contract-migrations)
+  * [Rollout order](#rollout-order)
+* [High availability](#high-availability)
 * [Upgrading to 6.x](#upgrading-to-6x)
 * [Change log](#change-log)
   * [6.0](#60)
@@ -971,32 +977,32 @@ kubectl delete pvc <release>-yontrack-chart
 
 ## Database connections
 
-Each backend opens up to:
+Each backend opens up to `ontrack.database.poolSize` connections (30 by default), in one pool, which the background
+jobs share since Yontrack 6.0.0-beta.8.
 
-* its main pool, of up to `ontrack.database.poolSize` connections (30 by default);
-* a pool for the locks of the background jobs, of up to `ontrack.config.jobs.pool-size` + 10 connections (20 by
-  default), which only opens connections while jobs run.
+Set the pool with `ontrack.database.poolSize`, not with `SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE` in
+`ontrack.envMap` or `ontrack.env`: the variable still wins, but it is not counted in the budget below.
 
-Set the main pool with `ontrack.database.poolSize`, not with `SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE` in
-`ontrack.envMap` or `ontrack.env`: the variable still wins, but it is not counted in the budget below. The same goes for
-`ONTRACK_CONFIG_JOBS_POOLSIZE`, which the budget does not track.
+The connection budget is the most connections the backends can hold at the same time. With R = `ontrack.replicas`
+and P = `ontrack.database.poolSize`:
 
-The connection budget is the most connections the backends can hold at the same time. With B =
-`ontrack.database.poolSize` + 20 per backend:
+| Mode                                  | Budget                  | Defaults (R = 1)           | R = 2                      |
+|---------------------------------------|-------------------------|----------------------------|----------------------------|
+| `ontrack.zeroDowntimeUpgrades: true`  | (R + 1) × P + P + 10    | 2 × 30 + 30 + 10 = **100** | 3 × 30 + 30 + 10 = **130** |
+| `ontrack.zeroDowntimeUpgrades: false` | 1 × P + 10              | 1 × 30 + 10 = **40**       | not allowed                |
 
-| Mode                                  | Budget                                   | Defaults                   |
-|---------------------------------------|------------------------------------------|----------------------------|
-| `ontrack.zeroDowntimeUpgrades: true`  | 2 × B + `ontrack.database.poolSize` + 10 | 2 × 50 + 30 + 10 = **140** |
-| `ontrack.zeroDowntimeUpgrades: false` | 1 × B + 10                               | 1 × 50 + 10 = **60**       |
-
-* With zero-downtime upgrades, two backends run side by side during the rollout.
-* The [contract migrations](#contract-migrations) Job only opens its main pool: it exits before the job locks are used.
-  It is counted on top of both backends, because `helm --wait` and the ArgoCD `PostSync` hook see the rollout as done
+* With zero-downtime upgrades, the rollout adds one backend (`maxSurge: 1`) to the R running ones.
+* The [contract migrations](#contract-migrations) Job opens a pool of the same size.
+  It is counted on top of the backends, because `helm --wait` and the ArgoCD `PostSync` hook see the rollout as done
   while the old pods may still be terminating, with their connections open.
 * The margin of 10 covers the 3 connections Postgres reserves for superusers, the metrics exporter and admin sessions.
 
 This worst case needs every pool to be full at the same moment, which is unlikely, but it is what the database must
 allow.
+
+> Before 6.0.0-beta.8, each backend also had a pool for the locks of the background jobs (20 connections by default),
+> which the budget does not count. It matters during an upgrade from such a version, while the old pods still run,
+> or with `image.tag` set to such a version: with the defaults, there is room for it.
 
 ### Bundled database
 
@@ -1004,7 +1010,7 @@ With the bundled database (`postgresql.local: true`), `max_connections` is `post
 default). The render fails when the budget is above it, for example:
 
 ```
-Postgres connections: the backends need up to 170 (2 backends × 60 + hook Job 40 + 10), above postgresql.maxConnections (150). Raise postgresql.maxConnections or lower ontrack.database.poolSize.
+Postgres connections: the backends need up to 160 (2 backends × 50 + hook Job 50 + 10), above postgresql.maxConnections (150). Raise postgresql.maxConnections or lower ontrack.database.poolSize.
 ```
 
 Raise `postgresql.maxConnections` for more room: the check never blocks it upward. Changing it restarts Postgres.
@@ -1092,6 +1098,49 @@ therefore be rolled out first:
 
 Users with a page open keep the old UI in their browser until they reload it.
 
+# High availability
+
+By default, Yontrack runs one backend: a node drain or the eviction of its pod is an outage until the replacement is
+ready. To run several backends permanently, set two values:
+
+```yaml
+ontrack:
+  zeroDowntimeUpgrades: true
+  replicas: 2
+```
+
+Every replica serves the requests, runs the background jobs (once per period in the cluster) and consumes the queues.
+What it guarantees, and how to operate it, is in the high availability page of the Yontrack
+documentation ([yontrack/yontrack#2090](https://github.com/yontrack/yontrack/issues/2090)). In short, a planned disruption (node drain, eviction, rolling upgrade) causes no failed request, while
+the unplanned loss of a pod fails the requests in flight on it.
+
+`ontrack.replicas` (`1` by default) sets the number of backend pods. Above `1`:
+
+* the render fails unless `ontrack.zeroDowntimeUpgrades` is `true`: several backends need its rolling update and a
+  data volume per pod, and `ontrack.replicas` does not switch it on by itself. All the
+  [requirements of this mode](#zero-downtime-upgrades) apply, including a key store other than `file`.
+* the backend needs Yontrack 6.0.0-beta.8 or later, the first release with the changes of the HA initiative
+  (yontrack/yontrack#2076 to #2088). The chart does not check the version.
+* a `PodDisruptionBudget` lets one backend pod at a time be evicted (`maxUnavailable: 1`), and the pods are spread
+  across nodes (`topologySpreadConstraints`, see `ontrack.topologySpread`). The spread is soft by default
+  (`ScheduleAnyway`): set `ontrack.topologySpread.whenUnsatisfiable: DoNotSchedule` to make it hard, and
+  `ontrack.topologySpread.topologyKey` to spread across zones instead of nodes.
+* each replica counts in the [connection budget](#database-connections): with the defaults, two replicas need up to
+  130 connections, within the default `postgresql.maxConnections` (150) of the bundled database. Three need 160:
+  raise `postgresql.maxConnections`, or lower `ontrack.database.poolSize`.
+
+The UI gets the same `PodDisruptionBudget` and spread when `ontrack.ui.replicas` is above `1`
+(`ontrack.ui.topologySpread`). With one replica, there is no `PodDisruptionBudget`, which would block a drain.
+
+A single replica with `ontrack.zeroDowntimeUpgrades: true` is still supported: upgrades have no downtime, but a node
+drain causes a short outage.
+
+The middleware deployed by the chart still runs as single instances: the bundled Postgres, RabbitMQ, the Postgres
+of the local Keycloak (Keycloak itself can run several pods, see [Keycloak replicas](#keycloak-replicas)) and the
+bundled MinIO. A drain of their node still interrupts Yontrack. Where it must not, use external or managed services:
+a [managed database](#using-a-managed-database), an [external S3-compatible storage](#external-s3-compatible-storage)
+and an [external OIDC provider](#oidc-for-okta). RabbitMQ is always deployed by the chart.
+
 # Upgrading to 6.x
 
 Chart 6.x installs Yontrack 6, which no longer needs Elasticsearch: the chart does not deploy it anymore.
@@ -1140,6 +1189,7 @@ kubectl delete pvc data-<release>-elasticsearch-master-0
 * Yontrack backend as a `Deployment`, with optional [zero-downtime upgrades](#zero-downtime-upgrades) (`ontrack.zeroDowntimeUpgrades`)
 * [Contract migrations](#contract-migrations) in a post-upgrade hook Job, and [rollout order](#rollout-order) under ArgoCD, for zero-downtime upgrades
 * [Connection budget](#database-connections) of the backends, checked against `postgresql.maxConnections` with the bundled Postgres
+* [High availability](#high-availability): several backends with `ontrack.replicas`, with disruption budgets and a spread across nodes for the backend and the UI. The unused `replicaCount` value is removed.
 * See [Upgrading to 6.x](#upgrading-to-6x)
 
 ## 1.0

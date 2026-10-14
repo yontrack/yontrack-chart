@@ -165,3 +165,6 @@ spec:
       tolerations:
         {{- toYaml .Values.tolerations | nindent 8 }}
       {{- end }}
+      {{- with include "ontrack.topologySpreadConstraints" (dict "replicas" .Values.ontrack.ui.replicas "spread" .Values.ontrack.ui.topologySpread "selectorLabels" (include "ontrack.selectorLabels.ui" .)) }}
+      {{- . | nindent 6 }}
+      {{- end }}

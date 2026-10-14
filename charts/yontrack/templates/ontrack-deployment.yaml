@@ -15,6 +15,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "0"
   {{- end }}
 spec:
+  replicas: {{ .Values.ontrack.replicas }}
   strategy:
     {{- if $zdu }}
     type: RollingUpdate
@@ -128,6 +129,9 @@ spec:
       {{- if .Values.tolerations }}
       tolerations:
         {{- toYaml .Values.tolerations | nindent 8 }}
+      {{- end }}
+      {{- with include "ontrack.topologySpreadConstraints" (dict "replicas" .Values.ontrack.replicas "spread" .Values.ontrack.topologySpread "selectorLabels" (include "ontrack.selectorLabels" .)) }}
+      {{- . | nindent 6 }}
       {{- end }}
       volumes:
         - name: ontrack

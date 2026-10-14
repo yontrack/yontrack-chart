@@ -1,6 +1,6 @@
 # yontrack-chart
 
-![Version: 6.0.0-beta.2](https://img.shields.io/badge/Version-6.0.0--beta.2-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0.0-beta.7](https://img.shields.io/badge/AppVersion-6.0.0--beta.7-informational?style=flat-square)
+![Version: 6.0.0-beta.3](https://img.shields.io/badge/Version-6.0.0--beta.3-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0.0-beta.8](https://img.shields.io/badge/AppVersion-6.0.0--beta.8-informational?style=flat-square)
 
 A Helm chart for Kubernetes
 
@@ -343,20 +343,27 @@ A Helm chart for Kubernetes
 | ontrack.probes.startup.periodSeconds | int | `10` | Probe interval at startup |
 | ontrack.probes.startup.timeoutSeconds | int | `5` | Timeout of each startup probe |
 | ontrack.profiles | string | `"prod"` | Comma-separated list of active Spring profiles |
+| ontrack.replicas | int | `1` | Number of backend replicas. Above `1`, requires `ontrack.zeroDowntimeUpgrades: true` (the render fails otherwise) and Yontrack 6.0.0-beta.8 or later, and adds a PodDisruptionBudget and a spread of the pods across nodes (`ontrack.topologySpread`). Each replica counts in the connection budget checked against `postgresql.maxConnections`. See "High availability" in the chart README. |
 | ontrack.resources.limits.cpu | string | `"800m"` | Yontrack resources |
 | ontrack.resources.limits.memory | string | `"2Gi"` | Yontrack resources |
 | ontrack.resources.requests.cpu | string | `"800m"` | Yontrack resources |
+| ontrack.topologySpread.enabled | bool | `true` | Spreading the backend pods (`topologySpreadConstraints`, `maxSkew: 1`) |
+| ontrack.topologySpread.topologyKey | string | `"kubernetes.io/hostname"` | Topology domain the pods are spread across |
+| ontrack.topologySpread.whenUnsatisfiable | string | `"ScheduleAnyway"` | `ScheduleAnyway` (soft: a pod is still scheduled when the spread cannot be kept) or `DoNotSchedule` (hard) |
 | ontrack.ui.config | object | `{"customSignin":true}` | UI configuration |
 | ontrack.ui.config.customSignin | bool | `true` | Using the custom signin page |
 | ontrack.ui.image | string | `"yontrack/yontrack-ui"` | Image to use for the UI |
 | ontrack.ui.podAnnotations | object | `{}` | Annotations for the Yontrack UI pod |
-| ontrack.ui.replicas | int | `1` | Number of replicas for the UI (experimental, unless `ontrack.zeroDowntimeUpgrades` is `true`) |
+| ontrack.ui.replicas | int | `1` | Number of replicas for the UI (experimental, unless `ontrack.zeroDowntimeUpgrades` is `true`). Above `1`, adds a PodDisruptionBudget and a spread of the pods across nodes (`ontrack.ui.topologySpread`). |
 | ontrack.ui.resources | object | `{"limits":{"cpu":"800m","memory":"1Gi"},"requests":{"cpu":"800m","memory":"1Gi"}}` | Next UI resources |
 | ontrack.ui.resources.limits.cpu | string | `"800m"` | Next UI resources |
 | ontrack.ui.resources.limits.memory | string | `"1Gi"` | Next UI resources |
 | ontrack.ui.resources.requests.cpu | string | `"800m"` | Next UI resources |
 | ontrack.ui.resources.requests.memory | string | `"1Gi"` | Next UI resources |
 | ontrack.ui.service.port | int | `3000` | Exposed port for the Yontrack IO |
+| ontrack.ui.topologySpread.enabled | bool | `true` | Spreading the UI pods (`topologySpreadConstraints`, `maxSkew: 1`) |
+| ontrack.ui.topologySpread.topologyKey | string | `"kubernetes.io/hostname"` | Topology domain the pods are spread across |
+| ontrack.ui.topologySpread.whenUnsatisfiable | string | `"ScheduleAnyway"` | `ScheduleAnyway` (soft: a pod is still scheduled when the spread cannot be kept) or `DoNotSchedule` (hard) |
 | ontrack.url | string | `"http://localhost:3000"` | Yontrack root URL - must point to the UI service |
 | ontrack.zeroDowntimeUpgrades | bool | `false` | Upgrade mode. `false` (default): one pod, the data PVC, the pod is restarted on upgrade. `true`: rolling update without downtime, for the backend and the UI. Requires a `jdbc` or `secret` key store (`ontrack.config.key_store`). `ontrack.persistence.enabled` is ignored: the pod gets its own ephemeral data volume, sized by `ontrack.persistence.size` (see `ontrack.persistence.ephemeral.enabled`). The readiness probe runs every 5 s with a failure threshold of 2 (only `ontrack.probes.readiness.timeoutSeconds` is used), the backend and UI pods wait 10 s before stopping, and the backend has 60 s to terminate. The contract migrations (destructive schema changes) are deferred, and run by a post-install/post-upgrade hook Job once the rollout is done: `helm upgrade` needs `--wait`. Under ArgoCD, the backend rolls out first (sync wave 0), then the UI (wave 1), then the hook Job (`PostSync`). |
 | openshift | object | `{"enabled":false}` | Configuration for OpenShift |
@@ -375,7 +382,6 @@ A Helm chart for Kubernetes
 | postgresql.postgresqlUrl | string | `""` | For external database |
 | postgresql.primary.extendedConfiguration | string | `"max_connections = {{ .Values.maxConnections }}"` | Extra configuration of the bundled database, rendered by the sub-chart, where `.Values` are the `postgresql.*` values. Overriding it takes over `max_connections`: keep a `max_connections = ...` line in it. |
 | rabbitmq | object | `{"auth":{"erlangCookie":"ontrack","password":"ontrack","username":"ontrack"},"image":{"repository":"bitnamilegacy/rabbitmq"}}` | Local RabbitMQ for message processing |
-| replicaCount | int | `1` |  |
 | securityContext | object | `{}` | Security context for the containers |
 | service.annotations | object | `{}` | Annotations for the Yontrack service |
 | service.port | int | `8080` | Exposed port for the Yontrack service |

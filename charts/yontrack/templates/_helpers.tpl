@@ -389,10 +389,30 @@ Fails for 5.x values still expecting a bundled cluster.
 
 {{/*
 Zero-downtime upgrades: the data volume is ephemeral, so nothing which must survive a rollout can be stored on it.
+Several backends need this mode (one volume per pod, rolling update): it is never implied by ontrack.replicas.
 */}}
 {{- define "ontrack.upgrades.validate" -}}
+{{- if and (gt (int .Values.ontrack.replicas) 1) (not .Values.ontrack.zeroDowntimeUpgrades) }}
+  {{- fail "ontrack.replicas above 1 requires ontrack.zeroDowntimeUpgrades: true: several backends need a data volume per pod and a rolling update. See \"High availability\" in the chart README." }}
+{{- end }}
 {{- if and .Values.ontrack.zeroDowntimeUpgrades (eq .Values.ontrack.config.key_store "file") }}
   {{- fail "ontrack.zeroDowntimeUpgrades requires ontrack.config.key_store to be jdbc or secret: the file key store lives on the data volume, which is ephemeral in this mode." }}
+{{- end }}
+{{- end }}
+
+{{/*
+Spread of the pods of a workload across topology domains, when it runs more than one replica.
+Parameters: replicas, spread (topologySpread values), selectorLabels (rendered selector labels of the pods).
+*/}}
+{{- define "ontrack.topologySpreadConstraints" -}}
+{{- if and (gt (int .replicas) 1) .spread.enabled }}
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: {{ .spread.topologyKey }}
+    whenUnsatisfiable: {{ .spread.whenUnsatisfiable }}
+    labelSelector:
+      matchLabels:
+        {{- .selectorLabels | nindent 8 }}
 {{- end }}
 {{- end }}
 
@@ -401,19 +421,17 @@ Connection budget of the bundled Postgres: the most connections the backends can
 against postgresql.maxConnections. The sub-chart renders max_connections in its own context, without the ontrack.*
 values: the chart declares it, and checks it here.
 
-Per backend: its main pool (ontrack.database.poolSize) and the pool of the job locks (20 with the default
-ontrack.config.jobs.pool-size, removed by yontrack/yontrack#2077). With zero-downtime upgrades, one more backend
-during the rollout, and the contract migrations Job (main pool only: it exits before the job locks open), which
-runs while the old pods may still be terminating. Plus a margin for the superuser slots, the metrics exporter and
-admin sessions.
+ontrack.replicas backends, each with its main pool (ontrack.database.poolSize), which the job scheduler also uses
+since yontrack/yontrack#2077 (6.0.0-beta.8). With zero-downtime upgrades, one more backend during the rollout
+(maxSurge: 1 in ontrack-deployment.yaml), and the contract migrations Job, which runs while the old pods may still
+be terminating. Plus a margin for the superuser slots, the metrics exporter and admin sessions.
 */}}
 {{- define "ontrack.database.validate" -}}
 {{- if .Values.postgresql.local }}
-  {{- $replicas := 1 }}
-  {{- $jobLocks := 20 }}
+  {{- $replicas := int .Values.ontrack.replicas }}
   {{- $margin := 10 }}
   {{- $poolSize := int .Values.ontrack.database.poolSize }}
-  {{- $perBackend := add $poolSize $jobLocks }}
+  {{- $perBackend := $poolSize }}
   {{- $backends := $replicas }}
   {{- $hookJobConnections := 0 }}
   {{- if .Values.ontrack.zeroDowntimeUpgrades }}
