@@ -1,0 +1,11 @@
+# kind cluster of the ha upgrade test (scripts/upgrade-test.sh): two workers for the two backends. The first one also
+# runs the single-instance services (Postgres, RabbitMQ, the cluster DNS, the load), so that draining the other one
+# only moves the replicated pods.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+    labels:
+      upgrade-test/services: "true"
+  - role: worker

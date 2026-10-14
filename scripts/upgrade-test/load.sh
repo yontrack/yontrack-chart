@@ -1,8 +1,10 @@
 #!/bin/sh
-# Load of the rolling upgrade test (scripts/upgrade-test.sh), run in the cluster, against the services:
+# Load of the rolling and ha upgrade tests (scripts/upgrade-test.sh), run in the cluster, against the services:
 # GraphQL queries and mutations on the backend, GET / on the UI. The GraphQL requests read and create predefined
 # validation stamps: creating a project needs a valid license. Every failed request is logged
-# (FAIL <kind> <code> <detail>) and counted, until /tmp/stop exists. Ends with SUMMARY lines, then DONE.
+# (FAIL <kind> #<n> <start> <end> <time> <code> <detail>, start and end in epoch seconds) and counted, until /tmp/stop
+# exists. The start of the last successful request of each kind is kept in /tmp/<kind>.ok. Ends with SUMMARY lines,
+# then DONE.
 
 set -u
 
@@ -11,10 +13,11 @@ SEED=upgrade-test
 RUN=$(date +%s)
 
 # Runs a request, with $1 the kind of request and the rest the curl arguments,
-# and sets CODE (HTTP code, 000 on a connection error) and BODY
+# and sets START (epoch seconds), CODE (HTTP code, 000 on a connection error) and BODY
 request() {
     kind="$1"
     shift
+    START=$(date +%s)
     # curl leaves the body of the previous request when it gets none
     rm -f "/tmp/$kind.body"
     CODE=$(curl -sS -o "/tmp/$kind.body" -w '%{http_code}' --max-time 10 "$@" 2> "/tmp/$kind.err")
@@ -35,6 +38,8 @@ for _ in $(seq 1 60); do
     sleep 5
 done
 [ -n "$TOKEN" ] || { echo "ERROR no token"; exit 1; }
+# Shared with the queries of scripts/upgrade-test.sh
+echo "$TOKEN" > /tmp/token
 
 # Seeding
 graphql seed "mutation { createPredefinedValidationStamp(input: {name: \\\"$SEED\\\", description: \\\"\\\"}) { predefinedValidationStamp { id } errors { message } } }"
@@ -46,16 +51,17 @@ check() {
     case "$CODE" in
         2??)
             if [ -n "$3" ] && ! echo "$BODY" | grep -qF "$3"; then
-                echo "FAIL $1 #$2 $(date +%T) $CODE $BODY"
+                echo "FAIL $1 #$2 $START $(date +%s) $(date +%T) $CODE $BODY"
                 return 1
             fi
             ;;
         *)
-            echo "FAIL $1 #$2 $(date +%T) $CODE $BODY" | head -c 500
+            echo "FAIL $1 #$2 $START $(date +%s) $(date +%T) $CODE $BODY" | head -c 500
             echo
             return 1
             ;;
     esac
+    echo "$START" > "/tmp/$1.ok"
 }
 
 loop() {
