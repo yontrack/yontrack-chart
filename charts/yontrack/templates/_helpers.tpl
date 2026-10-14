@@ -421,20 +421,17 @@ Connection budget of the bundled Postgres: the most connections the backends can
 against postgresql.maxConnections. The sub-chart renders max_connections in its own context, without the ontrack.*
 values: the chart declares it, and checks it here.
 
-ontrack.replicas backends, each with its main pool (ontrack.database.poolSize) and, at one replica, the pool of the
-job locks (20 with the default ontrack.config.jobs.pool-size). Several replicas need a backend with
-yontrack/yontrack#2077, which removed that pool. With zero-downtime upgrades, one more backend during the rollout
-(maxSurge: 1 in ontrack-deployment.yaml), and the contract migrations Job (main pool only: it exits before the job
-locks open), which runs while the old pods may still be terminating. Plus a margin for the superuser slots, the
-metrics exporter and admin sessions.
+ontrack.replicas backends, each with its main pool (ontrack.database.poolSize), which the job scheduler also uses
+since yontrack/yontrack#2077 (6.0.0-beta.8). With zero-downtime upgrades, one more backend during the rollout
+(maxSurge: 1 in ontrack-deployment.yaml), and the contract migrations Job, which runs while the old pods may still
+be terminating. Plus a margin for the superuser slots, the metrics exporter and admin sessions.
 */}}
 {{- define "ontrack.database.validate" -}}
 {{- if .Values.postgresql.local }}
   {{- $replicas := int .Values.ontrack.replicas }}
-  {{- $jobLocks := ternary 0 20 (gt $replicas 1) }}
   {{- $margin := 10 }}
   {{- $poolSize := int .Values.ontrack.database.poolSize }}
-  {{- $perBackend := add $poolSize $jobLocks }}
+  {{- $perBackend := $poolSize }}
   {{- $backends := $replicas }}
   {{- $hookJobConnections := 0 }}
   {{- if .Values.ontrack.zeroDowntimeUpgrades }}

@@ -842,15 +842,15 @@ test_case "Zero-downtime upgrades: the bundled Postgres has room for two backend
 render_ok "${ZDU[@]}"
 
 test_case "Zero-downtime upgrades: a budget above postgresql.maxConnections fails the render (#167)"
-render_fails_with "the backends need up to 170 (2 backends × 60 + hook Job 40 + 10), above postgresql.maxConnections (150)" \
-    "${ZDU[@]}" --set ontrack.database.poolSize=40
+render_fails_with "the backends need up to 160 (2 backends × 50 + hook Job 50 + 10), above postgresql.maxConnections (150)" \
+    "${ZDU[@]}" --set ontrack.database.poolSize=50
 
 test_case "Zero-downtime upgrades: a budget equal to postgresql.maxConnections renders (#167)"
-render_ok "${ZDU[@]}" --set ontrack.database.poolSize=40 --set postgresql.maxConnections=170
+render_ok "${ZDU[@]}" --set ontrack.database.poolSize=50 --set postgresql.maxConnections=160
 
 test_case "Default mode: a budget above postgresql.maxConnections fails the render (#167)"
 render_fails_with "the backends need up to 160 (1 backend × 150 + 10), above postgresql.maxConnections (150)" \
-    --set ontrack.database.poolSize=130
+    --set ontrack.database.poolSize=150
 
 test_case "External Postgres: no check on the connections (#167)"
 render_ok "${ZDU[@]}" --set ontrack.database.poolSize=500 \
@@ -924,7 +924,7 @@ if render_ok --set ontrack.ui.replicas=2 --set ontrack.ui.topologySpread.enabled
     assert_equals "UI spread" "$(manifests_json "$UI | .spec.template.spec.topologySpreadConstraints")" "null"
 fi
 
-test_case "The connection budget counts every backend and the surge, without the job locks above one replica (#168)"
+test_case "The connection budget counts every backend, and the surge (#168)"
 render_fails_with "the backends need up to 160 (4 backends × 30 + hook Job 30 + 10), above postgresql.maxConnections (150)" \
     "${ZDU[@]}" --set ontrack.replicas=3
 render_ok "${ZDU[@]}" --set ontrack.replicas=3 --set postgresql.maxConnections=160
