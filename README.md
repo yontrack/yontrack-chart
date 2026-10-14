@@ -1110,9 +1110,10 @@ ontrack:
 ```
 
 Every replica serves the requests, runs the background jobs (once per period in the cluster) and consumes the queues.
-What it guarantees, and how to operate it, is in the high availability page of the Yontrack
-documentation ([yontrack/yontrack#2090](https://github.com/yontrack/yontrack/issues/2090)). In short, a planned disruption (node drain, eviction, rolling upgrade) causes no failed request, while
-the unplanned loss of a pod fails the requests in flight on it.
+What it guarantees, and how to operate it, is in the
+[high availability page](https://docs.yontrack.com/yontrack/ref/versions/6.0.0-beta.9/content/operations/high-availability.html)
+of the Yontrack documentation. In short, a planned disruption (node drain, eviction, rolling upgrade) causes no failed
+request, while the unplanned loss of a pod fails the requests in flight on it.
 
 `ontrack.replicas` (`1` by default) sets the number of backend pods. Above `1`:
 
