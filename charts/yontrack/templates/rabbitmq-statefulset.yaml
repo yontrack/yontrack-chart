@@ -1,0 +1,126 @@
+{{- if .Values.rabbitmq.local }}
+{{- $name := include "ontrack.rabbitmq.fullname" . }}
+{{- $rabbitmq := .Values.rabbitmq }}
+{{- $openshift := include "ontrack.openshift.adaptSecurityContext" . }}
+{{- /*
+Single node, without clustering. Its name, data and Erlang cookie are in a folder of the volume of the Bitnami sub-chart
+(the rabbitmq subPath): RabbitMQ starts afresh on an upgrade from it, Yontrack declaring its exchanges and queues again (#183).
+*/}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "ontrack.labels.rabbitmq" . | nindent 4 }}
+spec:
+  replicas: 1
+  serviceName: {{ $name }}-headless
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "ontrack.selectorLabels.rabbitmq" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/rabbitmq-secret.yaml") . | sha256sum }}
+      labels:
+        {{- include "ontrack.selectorLabels.rabbitmq" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "ontrack.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      {{- if not $openshift }}
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1001
+        runAsNonRoot: true
+        fsGroup: 1001
+        # Never on each start: the Erlang cookie on the volume must stay readable by its owner only
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      {{- end }}
+      containers:
+        - name: rabbitmq
+          image: {{ $rabbitmq.image.repository }}:{{ $rabbitmq.image.tag }}
+          imagePullPolicy: {{ $rabbitmq.image.pullPolicy }}
+          {{- if not $openshift }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          {{- end }}
+          env:
+            # Data & Erlang cookie
+            - name: HOME
+              value: /var/lib/rabbitmq
+          ports:
+            - name: amqp
+              containerPort: 5672
+              protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: amqp
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: amqp
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: [ "rabbitmq-diagnostics", "-q", "ping" ]
+            periodSeconds: 30
+            timeoutSeconds: 20
+            failureThreshold: 6
+          {{- with $rabbitmq.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rabbitmq
+              subPath: rabbitmq
+            # The whole configuration, instead of the defaults of the image. The plugins stay those of the image
+            # (/etc/rabbitmq/enabled_plugins): its -management variant has the UI.
+            - name: config
+              mountPath: /etc/rabbitmq/conf.d
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      {{- with $rabbitmq.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $rabbitmq.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $rabbitmq.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: config
+          secret:
+            secretName: {{ $name }}
+            items:
+              - key: rabbitmq.conf
+                path: 10-yontrack.conf
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    {{- include "ontrack.volumeClaimTemplate" (dict
+        "size" $rabbitmq.persistence.size
+        "storageClass" $rabbitmq.persistence.storageClass
+        "annotations" $rabbitmq.persistence.annotations
+        "labels" (include "ontrack.selectorLabels.rabbitmq" .)
+    ) | nindent 4 }}
+{{- end }}
