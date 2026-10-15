@@ -4,8 +4,17 @@ configuration:
     branch:
       validations:
         build: {}
+        upgrade-rolling: {}
+        upgrade-default: {}
+        upgrade-ha: {}
         release: {}
       promotions:
+        BRONZE:
+          validations:
+            - build
+            - upgrade-rolling
+            - upgrade-default
+            - upgrade-ha
         RELEASE:
           validations:
             - build

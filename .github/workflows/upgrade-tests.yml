@@ -6,10 +6,23 @@ name: Upgrade tests
 # - default: the pod comes back, and both migrations run at startup;
 # - ha: as rolling, with two backends on two workers, then a node drain and the loss of a backend pod (#169).
 # See scripts/upgrade-test.sh.
+#
+# On main, release.yml calls this workflow once it has registered the Yontrack build, and each mode is recorded
+# on that build as the `upgrade-<mode>` validation (BRONZE, see .yontrack/ci.yaml).
 
 on:
   push:
+    # Tested by release.yml
+    branches-ignore:
+      - main
   pull_request:
+  workflow_call:
+    inputs:
+      yontrack-project:
+        description: Yontrack project of the build registered for the commit, to record the validations on
+        type: string
+        required: false
+        default: ''
 
 jobs:
   upgrade:
@@ -23,8 +36,21 @@ jobs:
         mode: [ rolling, default, ha ]
     name: upgrade (${{ matrix.mode }})
     steps:
+      - name: Job start
+        id: job_start
+        run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Yontrack build
+        if: ${{ inputs.yontrack-project }}
+        uses: nemerosa/ontrack-github-actions-cli-library/ontrack-cli-workflow-build@v1.0.3
+        with:
+          project: ${{ inputs.yontrack-project }}
+          yontrack-url: ${{ vars.YONTRACK_URL }}
+          yontrack-token: ${{ secrets.YONTRACK_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Preparing theme
         run: |
@@ -49,11 +75,22 @@ jobs:
           install_only: true
 
       - name: Upgrade test
+        id: upgrade
         run: |
           chmod +x scripts/upgrade-test.sh
           ./scripts/upgrade-test.sh ${{ matrix.mode }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Yontrack validation
+        if: ${{ !cancelled() && inputs.yontrack-project && (steps.upgrade.outcome == 'success' || steps.upgrade.outcome == 'failure') }}
+        env:
+          STARTED: ${{ steps.job_start.outputs.started }}
+        run: |
+          yontrack validate \
+            --validation upgrade-${{ matrix.mode }} \
+            --status ${{ steps.upgrade.outcome == 'success' && 'PASSED' || 'FAILED' }} \
+            --run-time $(( $(date +%s) - STARTED ))
 
       - name: Logs
         if: ${{ always() }}
