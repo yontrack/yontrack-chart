@@ -4,3 +4,4 @@
 #
 # <chart version> <reason>
 6.0.0-beta.2 the bundled Postgres restarts once to apply max_connections (#167)
+6.0.0-beta.6 the Bitnami sub-charts are replaced: the bundled Postgres and RabbitMQ restart once (#183)

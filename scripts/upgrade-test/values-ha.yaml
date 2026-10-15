@@ -10,9 +10,8 @@ ontrack:
     replicas: 2
 # Single instances: on the worker which is never drained (kind-ha.yaml)
 postgresql:
-  primary:
-    nodeSelector:
-      upgrade-test/services: "true"
+  nodeSelector:
+    upgrade-test/services: "true"
 rabbitmq:
   nodeSelector:
     upgrade-test/services: "true"
