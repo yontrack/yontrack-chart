@@ -1,0 +1,9 @@
+{{- if and .Values.networkPolicy.enabled .Values.postgresql.local }}
+{{- include "ontrack.networkPolicy" (dict
+    "root" .
+    "name" (include "ontrack.postgresql.fullname" .)
+    "labels" (include "ontrack.labels.postgresql" .)
+    "selectorLabels" (include "ontrack.selectorLabels.postgresql" .)
+    "port" 5432
+) }}
+{{- end }}

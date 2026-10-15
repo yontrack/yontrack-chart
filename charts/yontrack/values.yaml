@@ -45,17 +45,14 @@ securityContext: { }
 # runAsNonRoot: true
 # runAsUser: 1000
 
-# -- Global configuration for all sub-charts
+# -- Global configuration
 global:
   # -- Configuration for OpenShift
   compatibility:
     openshift:
-      # -- Whether to adapt the security context for OpenShift
+      # -- Whether to adapt the security context for OpenShift: with `openshift.enabled`, `auto` or `force` leave
+      # the security contexts of the pods to OpenShift
       adaptSecurityContext: auto
-  security:
-    # -- Skips the image verification of the Bitnami sub-charts, which all deliberately point to the `bitnamilegacy/*` images.
-    # Without it, the RabbitMQ sub-chart refuses to render when it is the only Bitnami sub-chart (external Postgres).
-    allowInsecureImages: true
 
 service:
   # -- Service type for the Yontrack service.
@@ -911,20 +908,6 @@ postgresql:
   # in `ontrack.extraConfig`) instead of `postgresql.postgresqlUrl`
   postgresFromEnv: false
 
-# -- Local database
-keycloak-postgresql:
-  image:
-    # -- See the announcement at https://hub.docker.com/r/bitnami/rabbitmq
-    repository: bitnamilegacy/postgresql
-  # -- Authentication parameters
-  auth:
-    # -- Name of the database to create
-    database: keycloak
-    # -- Credentials to be used
-    username: keycloak
-    # -- Credentials to be used
-    password: keycloak
-
 # Message broker of Yontrack: the bundled RabbitMQ (`rabbitmq.local: true`), or an external one.
 # Since 6.0, the chart deploys its own RabbitMQ instead of the Bitnami sub-chart: the keys of the sub-chart fail the
 # render (see "Upgrading to 6.x" in the chart README).
@@ -980,6 +963,15 @@ rabbitmq:
     virtualHost: /
     # -- Connecting with TLS
     ssl: false
+
+# NetworkPolicies of the bundled Postgres & RabbitMQ
+networkPolicy:
+  # -- Rendering a NetworkPolicy for the bundled Postgres and one for the bundled RabbitMQ: they then only accept
+  # connections on their port (5432, 5672), from the pods of the namespace and from `networkPolicy.from`
+  enabled: false
+  # -- Other sources allowed to connect to the bundled Postgres & RabbitMQ (`NetworkPolicyPeer` list), for example
+  # `namespaceSelector`s
+  from: []
 
 # External Elasticsearch, only used for the optional export of the metrics.
 # Since 6.0, the chart no longer bundles Elasticsearch: Yontrack searches in Postgres.
