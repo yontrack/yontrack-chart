@@ -93,8 +93,8 @@ helm delete yontrack
 This installs the following services:
 
 * Yontrack itself
-* a Postgres 17 database
-* a RabbitMQ message broker
+* a Postgres 17 database (or a [managed one](#using-a-managed-database))
+* a RabbitMQ message broker (or an [external one](#using-an-external-rabbitmq))
 
 Elasticsearch is no longer needed since 6.0: Yontrack searches in its Postgres database.
 It can still be used as a target for the [metrics export](#exporting-metrics-to-elasticsearch).
@@ -596,6 +596,26 @@ This requires the following environmment variables to be set:
 > Otherwise, create it beforehand, once, in the Yontrack database, as a user who can.
 > See [Search index](https://github.com/yontrack/yontrack/blob/main/ontrack-docs/docs/content/operations/search-index.md).
 
+# Using an external RabbitMQ
+
+By default, the chart deploys a single RabbitMQ node. To use an existing broker instead:
+
+```yaml
+rabbitmq:
+  local: false
+  auth:
+    username: ontrack
+    password: "*****"
+  external:
+    host: rabbitmq.example.com
+    port: 5671
+    virtualHost: /yontrack
+    ssl: true
+```
+
+The chart then deploys no RabbitMQ. Yontrack only needs AMQP 0-9-1 on a virtual host where its user can declare its
+own exchanges and queues: it declares them at startup.
+
 # Exporting metrics to Elasticsearch
 
 Yontrack can export its metrics to an Elasticsearch cluster. This is disabled by default and the chart
@@ -917,7 +937,15 @@ When enabled:
 * default security contexts are more likely to be compatible with OpenShift restricted SCC.
 * init containers are also configured with security contexts.
 
-For the sub-charts (PostgreSQL, RabbitMQ), the `global.compatibility.openshift.adaptSecurityContext` is set to `auto` by default to help them run on OpenShift.
+The bundled Postgres & RabbitMQ, and the Postgres of the local Keycloak, run with the official images, as the user
+& group 1001 with a hardened security context. With `openshift.enabled` and
+`global.compatibility.openshift.adaptSecurityContext` set to `auto` (the default) or `force`, their security contexts
+are left out: the SCC assigns the user of the namespace, which the official images accept.
+
+> Upgrading from a chart with the Bitnami sub-charts (up to 6.0.0-beta.5, see [Upgrading to 6.x](#upgrading-to-6x)):
+> under `restricted-v2`, the Bitnami Postgres ran with the UID of the namespace, which therefore owns its data. The new
+> Postgres runs with the same UID, and must own its data directory (Postgres requires its mode to be `0700`): do not
+> move the release to another namespace, or change its SCC, in the same upgrade.
 
 # GitOps / rendered manifests
 
@@ -1018,9 +1046,16 @@ Raise `postgresql.maxConnections` for more room: the check never blocks it upwar
 > Upgrading to the chart version which sets `max_connections` (6.0.0-beta.2) restarts the bundled Postgres once:
 > a short database outage, even with `ontrack.zeroDowntimeUpgrades: true`.
 
-`max_connections` is rendered by `postgresql.primary.extendedConfiguration`. If you override it, you take over
-`max_connections`: keep a `max_connections = {{ .Values.maxConnections }}` line in it, or the render check no longer
-matches the database.
+Other settings of the bundled Postgres go to `postgresql.config`, as lines of `postgresql.conf`, appended after
+`max_connections`. Keep `max_connections` out of them: a later line wins, and the render check would no longer match
+the database. Changing them restarts Postgres.
+
+```yaml
+postgresql:
+  config: |
+    work_mem = 8MB
+    log_min_duration_statement = 1000
+```
 
 ### External database
 
@@ -1142,7 +1177,7 @@ The middleware deployed by the chart still runs as single instances: the bundled
 of the local Keycloak (Keycloak itself can run several pods, see [Keycloak replicas](#keycloak-replicas)) and the
 bundled MinIO. A drain of their node still interrupts Yontrack. Where it must not, use external or managed services:
 a [managed database](#using-a-managed-database), an [external S3-compatible storage](#external-s3-compatible-storage)
-and an [external OIDC provider](#oidc-for-okta). RabbitMQ is always deployed by the chart.
+an [external RabbitMQ](#using-an-external-rabbitmq) and an [external OIDC provider](#oidc-for-okta).
 
 ## Spread of the pods
 
@@ -1203,6 +1238,50 @@ kubectl delete pvc data-<release>-elasticsearch-master-0
   against the [connection budget](#database-connections) of the backends. Upgrading restarts it once.
 * The legacy `oci://registry-1.docker.io/nemerosa/yontrack-chart` location only receives 5.x versions.
 
+## Bitnami sub-charts
+
+Since 6.0.0-beta.6, the chart no longer uses the Bitnami sub-charts and their frozen `bitnamilegacy/*` images: it
+deploys its own Postgres and RabbitMQ, on the official `postgres` and `rabbitmq` images. Their StatefulSets, volumes and
+Services keep their names, so `helm upgrade` updates them in place.
+
+* Postgres starts on its existing data: same Postgres version (17.6) and same OS (Debian 12), so the same collations.
+* Postgres and RabbitMQ restart once: a short outage, even with `ontrack.zeroDowntimeUpgrades: true`.
+* RabbitMQ starts on an empty data folder of its volume: **the messages still queued at the upgrade are lost**.
+  Yontrack declares its exchanges and queues again at startup. Upgrade while Yontrack is idle (no auto-versioning or
+  notification in progress). The data of the former RabbitMQ (`rabbit@*` folders) stays at the root of the volume,
+  unused (a few MB).
+* `postgresql.auth.*` is now used by Yontrack with the bundled Postgres: the credentials are read from the
+  `<release>-postgresql` secret. Before, Yontrack ignored them and used its own defaults (`ontrack`/`ontrack`): if you
+  changed `postgresql.auth.username` or `password`, check that they match the user of the existing database (they
+  are only used to create it at the first start).
+* The `postgres` superuser of the existing database keeps its password, but it is no longer in the
+  `<release>-postgresql` secret: use `kubectl exec <release>-postgresql-0 -- psql -U postgres`, which needs none.
+* The Bitnami sub-charts rendered NetworkPolicies by default. The chart renders them only with
+  `networkPolicy.enabled: true` (see `networkPolicy.from`).
+* The Postgres of the local Keycloak is now persisted. Since 5.0.11, it lost its data at each re-creation of its pod: users
+  created in the Keycloak UI, for example, were lost. A realm and an LDAP federation defined in the values lose
+  nothing. Its data is in a new `postgresql` folder of its volume: on the first start, Keycloak starts from an empty
+  database again, then keeps it.
+
+The values of the sub-charts fail the render, with the name of the value, instead of being silently ignored. Their
+replacements:
+
+| Before (Bitnami sub-charts)                                                  | Since 6.0.0-beta.6                                                  |
+|------------------------------------------------------------------------------|---------------------------------------------------------------------|
+| `postgresql.primary.extendedConfiguration`                                   | `postgresql.maxConnections`, `postgresql.config`                    |
+| `postgresql.primary.persistence.size`, `storageClass`, `annotations`        | `postgresql.persistence.size`, `storageClass`, `annotations`        |
+| `postgresql.primary.resources`, `nodeSelector`, `tolerations`, `affinity`   | `postgresql.resources`, `nodeSelector`, `tolerations`, `affinity`   |
+| `postgresql.image.*`, `rabbitmq.image.*`                                     | `image.repository`, `tag`, `pullPolicy` of the official images      |
+| `rabbitmq.persistence.*`, `resources`, `nodeSelector`, `tolerations`, `affinity` | unchanged                                                       |
+| `rabbitmq.auth.erlangCookie`, `global.security.allowInsecureImages`          | removed                                                             |
+| other values of the sub-charts (`postgresql.primary.*`, `rabbitmq.clustering`, `rabbitmq.replicaCount`, metrics...) | not supported                |
+
+> [!IMPORTANT]
+> The volume claims of a StatefulSet cannot change. If you set the size or the storage class of a volume of the
+> sub-charts (`postgresql.primary.persistence.*`, `rabbitmq.persistence.*`, `global.storageClass`,
+> `global.defaultStorageClass`), set the same values under `postgresql.persistence` and `rabbitmq.persistence`.
+> Otherwise, `helm upgrade` fails with `spec: Forbidden: updates to statefulset spec for fields other than ...`.
+
 # Change log
 
 | Version        | Postgres | Elasticsearch | Rabbit MQ | Kubernetes | Minimal Yontrack version |
@@ -1229,6 +1308,7 @@ kubectl delete pvc data-<release>-elasticsearch-master-0
 * [High availability](#high-availability): several backends with `ontrack.replicas`, with disruption budgets and a spread across nodes for the backend and the UI. The unused `replicaCount` value is removed.
 * [Spread of the pods](#spread-of-the-pods) per ReplicaSet (`matchLabelKeys: [pod-template-hash]`) and on the nodes the pods tolerate (`nodeTaintsPolicy: Honor`), so that rollouts no longer put the new pods on one node. Several replicas need Kubernetes 1.27 or later.
 * A hard [spread of the pods](#spread-of-the-pods) keeps at least two domains (`minDomains`, `ontrack.topologySpread.minDomains`), so that one node left never takes all the pods.
+* Postgres & RabbitMQ on the official images instead of the [Bitnami sub-charts](#bitnami-sub-charts), with an optional [external RabbitMQ](#using-an-external-rabbitmq) and NetworkPolicies (`networkPolicy.enabled`). The database of the local Keycloak is now persisted.
 * See [Upgrading to 6.x](#upgrading-to-6x)
 
 ## 1.0
@@ -1340,6 +1420,12 @@ more expand and one more contract migration (`scripts/upgrade-test/`):
   each kind started after these 10 s must succeed; once Quartz has recovered the lost instance, the `jobs` GraphQL
   query shows no job running on it. A previous chart without `ontrack.replicas` runs one backend: the upgrade then
   goes from one to two.
+
+After the upgrade, the test also checks that the backends consume their RabbitMQ queues again (the load does not
+go through RabbitMQ), and that the data of Postgres is kept (the schema checks).
+
+The previous charts with the Bitnami sub-charts (up to 6.0.0-beta.5) take their `ha` values in their own shape
+(`scripts/upgrade-test/values-ha-previous.yaml`), only when installing them.
 
 An upgrade with a documented outage (like 6.0.0-beta.2, which restarts the bundled Postgres) is listed, with its
 reason, in `scripts/upgrade-test/disruptive.txt`: when the chart of the commit has this version, the `rolling` and `ha`
