@@ -1,0 +1,10 @@
+{{- if .Values.postgresql.local }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ontrack.postgresql.fullname" . }}-configuration
+  labels:
+    {{- include "ontrack.labels.postgresql" . | nindent 4 }}
+data:
+  {{- include "ontrack.postgresql.configData" . | nindent 2 }}
+{{- end }}

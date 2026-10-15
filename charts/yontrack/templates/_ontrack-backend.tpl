@@ -57,9 +57,19 @@ Environment of the Yontrack backend container, shared by the Deployment and the 
 # Database configuration
 ########################################
 {{- if .Values.postgresql.local }}
-# For test service
+# Bundled database
 - name: SPRING_DATASOURCE_URL
-  value: "jdbc:postgresql://{{ .Release.Name }}-postgresql-hl:5432/{{ .Values.postgresql.auth.database }}"
+  value: "jdbc:postgresql://{{ include "ontrack.postgresql.fullname" . }}-hl:5432/{{ .Values.postgresql.auth.database }}"
+- name: SPRING_DATASOURCE_USERNAME
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "ontrack.postgresql.fullname" . | quote }}
+      key: username
+- name: SPRING_DATASOURCE_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "ontrack.postgresql.fullname" . | quote }}
+      key: password
 # For a managed database, using external environment variables
 {{- else if .Values.postgresql.postgresFromEnv }}
 # Nothing to be declared here

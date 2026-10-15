@@ -1,0 +1,35 @@
+{{- if .Values.postgresql.local }}
+{{- $name := include "ontrack.postgresql.fullname" . }}
+# Headless Service governing the StatefulSet, used by Yontrack
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-hl
+  labels:
+    {{- include "ontrack.labels.postgresql" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    {{- include "ontrack.selectorLabels.postgresql" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "ontrack.labels.postgresql" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    {{- include "ontrack.selectorLabels.postgresql" . | nindent 4 }}
+{{- end }}

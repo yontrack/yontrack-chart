@@ -1,0 +1,21 @@
+{{- if .Values.postgresql.local }}
+{{- $name := include "ontrack.postgresql.fullname" . }}
+{{- $postgresql := .Values.postgresql }}
+{{- include "ontrack.postgres.statefulset" (dict
+    "root" .
+    "name" $name
+    "serviceName" (printf "%s-hl" $name)
+    "labels" (include "ontrack.labels.postgresql" .)
+    "selectorLabels" (include "ontrack.selectorLabels.postgresql" .)
+    "configMap" (printf "%s-configuration" $name)
+    "configData" (include "ontrack.postgresql.configData" .)
+    "image" $postgresql.image
+    "database" $postgresql.auth.database
+    "credentials" (dict "secret" $name "usernameKey" "username" "passwordKey" "password")
+    "claimTemplate" (dict "size" $postgresql.persistence.size "storageClass" $postgresql.persistence.storageClass "annotations" $postgresql.persistence.annotations)
+    "resources" $postgresql.resources
+    "nodeSelector" $postgresql.nodeSelector
+    "tolerations" $postgresql.tolerations
+    "affinity" $postgresql.affinity
+) }}
+{{- end }}
