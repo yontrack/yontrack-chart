@@ -8,6 +8,8 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      yontrack-project: ${{ steps.yontrack-config.outputs.projectName }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -122,3 +124,12 @@ jobs:
         run: |
           yontrack build set-property release "${{ steps.release.outputs.currentRelease }}"
           yontrack validate --validation release --status ${{ steps.publish.outcome == 'success' && 'PASSED' || 'FAILED' }}
+
+  # Recorded on the Yontrack build registered above, whether the release succeeded or not
+  upgrade:
+    needs: release
+    if: ${{ !cancelled() && needs.release.outputs.yontrack-project != '' }}
+    uses: ./.github/workflows/upgrade-tests.yml
+    with:
+      yontrack-project: ${{ needs.release.outputs.yontrack-project }}
+    secrets: inherit

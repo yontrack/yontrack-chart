@@ -1421,6 +1421,10 @@ more expand and one more contract migration (`scripts/upgrade-test/`):
   query shows no job running on it. A previous chart without `ontrack.replicas` runs one backend: the upgrade then
   goes from one to two.
 
+On `main`, the tests run from `.github/workflows/release.yml`, once it has registered the Yontrack build of the
+commit, and each mode is recorded on that build as the `upgrade-rolling`, `upgrade-default` and `upgrade-ha`
+validations, which, with `build`, grant `BRONZE` (`.yontrack/ci.yaml`).
+
 After the upgrade, the test also checks that the backends consume their RabbitMQ queues again (the load does not
 go through RabbitMQ), and that the data of Postgres is kept (the schema checks).
 

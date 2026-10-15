@@ -94,6 +94,7 @@ Fixes needed on both lines land on `main` and are cherry-picked to `v5` (no forw
 3. Packages the chart
 4. Checks whether a GitHub release already exists for `chart.version`
 5. If new version: pushes OCI artifact to Docker Hub and creates a GitHub release with a generated changelog
+6. Calls `upgrade-tests.yml` (whatever the release did), which records each mode on the Yontrack build as `upgrade-<mode>`; with `build`, they grant `BRONZE`. On other branches and fork PRs, `upgrade-tests.yml` runs on its own and records nothing
 
 A merge that leaves `version` unchanged publishes nothing. So every PR that changes what the chart ships (templates, values, files, sub-charts) ends with its own commit, `chore: chart <version>`, that bumps `version` in `Chart.yaml` to the next one on its line (on `main`: `6.0.0-beta.N` → `6.0.0-beta.N+1`). In that commit, also run `helm-docs charts/yontrack`, which updates the version badge in `charts/yontrack/README.md`. Changes to docs, scripts or CI alone keep the version.
 
