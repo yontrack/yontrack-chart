@@ -17,5 +17,5 @@ spec:
     - protocol: TCP
       name: postgres
       port: 5432
-      targetPort: postgres
+      targetPort: tcp-postgresql
 {{- end }}

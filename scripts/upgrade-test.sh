@@ -61,6 +61,14 @@ MAJOR="${CURRENT%%.*}"
 PREVIOUS="${PREVIOUS_CHART_VERSION:-$(gh release list --exclude-drafts --limit 100 --json tagName --jq "[.[].tagName | select(. != \"$CURRENT\" and startswith(\"$MAJOR.\"))][0]")}"
 [ -n "$PREVIOUS" ] || { echo "No previous $MAJOR.x release" >&2; exit 1; }
 BASE_IMAGE="${BASE_IMAGE:-yontrack/yontrack:$APP_VERSION}"
+# Values of the previous chart. The charts with the Bitnami sub-charts (up to 6.0.0-beta.5) take values-ha.yaml in
+# their shape (#183). The case can go once no previous chart is one of them.
+PREVIOUS_VALUES=("${VALUES[@]}")
+case "$PREVIOUS" in
+    6.0.0-beta.[1-5])
+        [ "$MODE" != ha ] || PREVIOUS_VALUES=(-f "$DIR/values.yaml" --set "ontrack.zeroDowntimeUpgrades=$ZDU" -f "$DIR/values-ha-previous.yaml")
+        ;;
+esac
 # Documented outage of the upgrade to this version, if any (failed requests are then expected)
 DISRUPTION=$(awk -v v="$CURRENT" '$1 == v { $1 = ""; sub(/^ +/, ""); print }' "$DIR/disruptive.txt")
 # Another repository, same tag: the UI image follows the tag of the backend image
@@ -179,7 +187,7 @@ kind load docker-image "$TEST_IMAGE" --name "$CLUSTER"
 
 log "Installing the chart $PREVIOUS"
 "${HELM[@]}" install "$RELEASE" oci://registry-1.docker.io/yontrack/yontrack-chart --version "$PREVIOUS" \
-    "${VALUES[@]}" --wait --timeout 20m
+    "${PREVIOUS_VALUES[@]}" --wait --timeout 20m
 if [ "$MODE" = ha ]; then
     # A chart without ontrack.replicas runs one backend: the upgrade then goes from one to two
     log "Backends of the chart $PREVIOUS: $("${KUBECTL[@]}" get "deployment/$BACKEND" -o jsonpath='{.status.readyReplicas}')"
@@ -349,6 +357,17 @@ else
     grep -F "Contract migration applied: V9002" <<< "$(pod_logs "$BACKEND_PODS")" \
         || fail "the backend did not apply the contract migration at startup"
 fi
+
+log "RabbitMQ"
+# The load never goes through RabbitMQ: the backends must have declared their queues again, and consume them
+QUEUES=$("${KUBECTL[@]}" exec "$RELEASE-rabbitmq-0" -- rabbitmqctl list_queues -q --no-table-headers name consumers) \
+    || fail "the queues of RabbitMQ cannot be listed"
+echo "$QUEUES"
+for prefix in ontrack.queue.notification. ontrack.queue.auto-versioning.; do
+    grep -qF "$prefix" <<< "$QUEUES" || fail "no $prefix* queue in RabbitMQ"
+done
+IDLE=$(awk '$2 == 0 { print $1 }' <<< "$QUEUES")
+[ -z "$IDLE" ] || fail "queues without consumer: $(tr '\n' ' ' <<< "$IDLE")"
 
 log "Schema"
 [ "$(sql "select count(*) from schema_version where version = '9001' and success")" = 1 ] \

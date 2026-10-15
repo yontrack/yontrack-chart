@@ -379,25 +379,6 @@ if render_ok; then
         "/keycloak /graphql /hook /rest/extension/audit-trail / "
 fi
 
-echo "Bitnami sub-charts"
-
-# Each Bitnami sub-chart embeds its own version of the "common" library, and Helm keeps only one definition per
-# template name: the image check of RabbitMQ must not depend on another sub-chart lending it a lenient version (#136).
-test_case "RabbitMQ renders on its own, with an external Postgres (#136)"
-if render_ok --set postgresql.local=false --set postgresql.postgresFromEnv=true; then
-    assert_equals "Postgres resources" "$(manifests 'select(.metadata.name | test("postgresql")) | .kind + "/" + .metadata.name')" ""
-    assert_equals "RabbitMQ image" "$(manifests 'select(.kind == "StatefulSet" and (.metadata.name | test("rabbitmq"))) | .spec.template.spec.containers[] | select(.name == "rabbitmq") | .image')" \
-        "docker.io/bitnamilegacy/rabbitmq:4.1.3-debian-12-r1"
-fi
-
-test_case "The bundled Postgres has an explicit max_connections (#167)"
-if render_ok; then
-    POSTGRES_CONFIG=ontrack-postgresql-extended-configuration
-    assert_equals "override.conf" "$(manifests "select(.kind == \"ConfigMap\" and .metadata.name == \"$POSTGRES_CONFIG\") | .data[\"override.conf\"]")" "max_connections = 150"
-    assert_equals "mounted by Postgres" "$(manifests "select(.kind == \"StatefulSet\" and .metadata.name == \"ontrack-postgresql\") | .spec.template.spec.volumes[] | select(.configMap.name == \"$POSTGRES_CONFIG\") | .name")" \
-        "postgresql-extended-config"
-fi
-
 echo "Elasticsearch"
 
 # Environment variables of the Yontrack container whose name matches a regex, as NAME=value (or NAME=secret:key)
@@ -855,6 +836,235 @@ render_fails_with "the backends need up to 160 (1 backend × 150 + 10), above po
 test_case "External Postgres: no check on the connections (#167)"
 render_ok "${ZDU[@]}" --set ontrack.database.poolSize=500 \
     --set postgresql.local=false --set postgresql.postgresqlUrl=jdbc:postgresql://db/yontrack
+
+echo "Bundled Postgres & RabbitMQ"
+
+POSTGRES='select(.kind == "StatefulSet" and .metadata.name == "ontrack-postgresql")'
+POSTGRES_CONTAINER="$POSTGRES | .spec.template.spec.containers[] | select(.name == \"postgresql\")"
+POSTGRES_CONFIG='select(.kind == "ConfigMap" and .metadata.name == "ontrack-postgresql-configuration")'
+KEYCLOAK_POSTGRES='select(.kind == "StatefulSet" and .metadata.name == "ontrack-yontrack-chart-keycloak-postgres")'
+KEYCLOAK_POSTGRES_CONTAINER="$KEYCLOAK_POSTGRES | .spec.template.spec.containers[] | select(.name == \"postgresql\")"
+RABBITMQ='select(.kind == "StatefulSet" and .metadata.name == "ontrack-rabbitmq")'
+RABBITMQ_CONTAINER="$RABBITMQ | .spec.template.spec.containers[] | select(.name == \"rabbitmq\")"
+# Runs a yq expression on each rendered manifest, without document separators
+per_manifest() {
+    yq e -N "$1" "$TMP/out.yaml"
+}
+# Resources whose name matches a regex, as Kind/name lines
+resources_matching() {
+    per_manifest "select(.metadata.name | test(\"$1\")) | .kind + \"/\" + .metadata.name"
+}
+# Environment variable of a container, as NAME=value or NAME=secret:key
+env_of() {
+    manifests "$1 | .env[] | select(.name == \"$2\") | .name + \"=\" + (.value // (.valueFrom.secretKeyRef.name + \":\" + .valueFrom.secretKeyRef.key))"
+}
+# Compact JSON with sorted keys
+sorted_json() {
+    manifests_json "$1" | jq -cS .
+}
+
+test_case "No Bitnami image nor chart in the default render (#183)"
+if render_ok; then
+    grep -qi bitnami "$TMP/out.yaml" && fail "bitnami found in: $(grep -i bitnami "$TMP/out.yaml" | head -3)"
+    assert_equals "Postgres image" "$(manifests "$POSTGRES_CONTAINER | .image")" "postgres:17.6-bookworm"
+    assert_equals "Keycloak Postgres image" "$(manifests "$KEYCLOAK_POSTGRES_CONTAINER | .image")" "postgres:17.6-bookworm"
+    assert_equals "RabbitMQ image" "$(manifests "$RABBITMQ_CONTAINER | .image")" "rabbitmq:4.1.3"
+fi
+
+# Immutable fields of the StatefulSets, as rendered by the Bitnami sub-charts of 6.0.0-beta.5: helm upgrade patches them
+test_case "The bundled Postgres keeps the Kubernetes identity of the Bitnami sub-chart (#183)"
+if render_ok; then
+    assert_equals "selector" "$(sorted_json "$POSTGRES | .spec.selector")" \
+        '{"matchLabels":{"app.kubernetes.io/component":"primary","app.kubernetes.io/instance":"ontrack","app.kubernetes.io/name":"postgresql"}}'
+    assert_equals "serviceName" "$(manifests "$POSTGRES | .spec.serviceName")" "ontrack-postgresql-hl"
+    assert_equals "podManagementPolicy" "$(manifests "$POSTGRES | .spec.podManagementPolicy // \"OrderedReady\"")" "OrderedReady"
+    assert_equals "volumeClaimTemplates" "$(sorted_json "$POSTGRES | .spec.volumeClaimTemplates")" \
+        '[{"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"name":"data"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"8Gi"}}}}]'
+    assert_equals "services" "$(per_manifest 'select(.kind == "Service" and (.metadata.name | test("postgresql"))) | .metadata.name + " " + (.spec.clusterIP // "-") + " " + ((.spec.publishNotReadyAddresses // false) | tostring) + " " + ([.spec.ports[] | .name + ":" + (.port | tostring)] | join(","))' | sort | tr '\n' ';')" \
+        "ontrack-postgresql - false tcp-postgresql:5432;ontrack-postgresql-hl None true tcp-postgresql:5432;"
+    assert_equals "service selector" "$(sorted_json 'select(.kind == "Service" and .metadata.name == "ontrack-postgresql") | .spec.selector')" \
+        '{"app.kubernetes.io/component":"primary","app.kubernetes.io/instance":"ontrack","app.kubernetes.io/name":"postgresql"}'
+fi
+
+test_case "The bundled RabbitMQ keeps the Kubernetes identity of the Bitnami sub-chart (#183)"
+if render_ok; then
+    assert_equals "selector" "$(sorted_json "$RABBITMQ | .spec.selector")" \
+        '{"matchLabels":{"app.kubernetes.io/instance":"ontrack","app.kubernetes.io/name":"rabbitmq"}}'
+    assert_equals "serviceName" "$(manifests "$RABBITMQ | .spec.serviceName")" "ontrack-rabbitmq-headless"
+    assert_equals "podManagementPolicy" "$(manifests "$RABBITMQ | .spec.podManagementPolicy")" "OrderedReady"
+    assert_equals "volumeClaimTemplates" "$(sorted_json "$RABBITMQ | .spec.volumeClaimTemplates")" \
+        '[{"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"labels":{"app.kubernetes.io/instance":"ontrack","app.kubernetes.io/name":"rabbitmq"},"name":"data"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"8Gi"}}}}]'
+    assert_equals "services" "$(per_manifest 'select(.kind == "Service" and (.metadata.name | test("rabbitmq"))) | .metadata.name + " " + (.spec.clusterIP // "-") + " " + ([.spec.ports[] | .name + ":" + (.port | tostring)] | join(","))' | sort | tr '\n' ';')" \
+        "ontrack-rabbitmq - amqp:5672;ontrack-rabbitmq-headless None amqp:5672;"
+fi
+
+test_case "The persistence of the bundled Postgres & RabbitMQ is configurable (#183)"
+if render_ok --set postgresql.persistence.size=20Gi --set postgresql.persistence.storageClass=fast \
+    --set rabbitmq.persistence.size=2Gi --set rabbitmq.persistence.storageClass=- --set rabbitmq.persistence.annotations.team=yontrack; then
+    assert_equals "Postgres claim" "$(sorted_json "$POSTGRES | .spec.volumeClaimTemplates[0].spec")" \
+        '{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"20Gi"}},"storageClassName":"fast"}'
+    assert_equals "RabbitMQ claim" "$(sorted_json "$RABBITMQ | .spec.volumeClaimTemplates[0] | [.metadata.annotations, .spec]")" \
+        '[{"team":"yontrack"},{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"2Gi"}},"storageClassName":""}]'
+fi
+
+test_case "The bundled Postgres runs on its own configuration, with max_connections (#167, #183)"
+if render_ok; then
+    CONFIG=$(manifests "$POSTGRES_CONFIG | .data[\"postgresql.conf\"]")
+    grep -qx "max_connections = 150" <<< "$CONFIG" || fail "no max_connections = 150 in: $CONFIG"
+    grep -qx "listen_addresses = '\*'" <<< "$CONFIG" || fail "no listen_addresses in: $CONFIG"
+    grep -q "scram-sha-256" <<< "$(manifests "$POSTGRES_CONFIG | .data[\"pg_hba.conf\"]")" || fail "pg_hba.conf does not accept scram-sha-256"
+    assert_equals "args" "$(manifests "$POSTGRES_CONTAINER | .args | join(\" \")")" \
+        "postgres -c config_file=/etc/postgresql/postgresql.conf -c hba_file=/etc/postgresql/pg_hba.conf -c ident_file=/etc/postgresql/pg_ident.conf"
+    assert_equals "mounted" "$(manifests "$POSTGRES | .spec.template.spec.volumes[] | select(.configMap.name == \"ontrack-postgresql-configuration\") | .name")" "config"
+    CHECKSUM=$(manifests "$POSTGRES | .spec.template.metadata.annotations[\"checksum/config\"]")
+    [ "$CHECKSUM" != "null" ] && [ -n "$CHECKSUM" ] || fail "no checksum/config annotation"
+fi
+
+test_case "Extra lines of the Postgres configuration are appended, and restart Postgres (#183)"
+if render_ok --set postgresql.config="work_mem = 8MB"; then
+    assert_equals "last line" "$(manifests "$POSTGRES_CONFIG | .data[\"postgresql.conf\"]" | sed '/^$/d' | tail -1)" "work_mem = 8MB"
+    [ "$(manifests "$POSTGRES | .spec.template.metadata.annotations[\"checksum/config\"]")" != "$CHECKSUM" ] \
+        || fail "the checksum does not change with the configuration"
+fi
+
+test_case "The bundled Postgres reuses the data of the Bitnami sub-chart, as a non-root user (#183)"
+if render_ok; then
+    MOUNT=$(manifests "$POSTGRES_CONTAINER | .volumeMounts[] | select(.name == \"data\") | .mountPath + \" \" + (.subPath // \"-\")")
+    assert_equals "data mount" "$MOUNT" "/var/lib/postgresql/storage -"
+    assert_equals "PGDATA" "$(env_of "$POSTGRES_CONTAINER" PGDATA)" "PGDATA=/var/lib/postgresql/storage/data"
+    assert_equals "pod security" "$(sorted_json "$POSTGRES | .spec.template.spec.securityContext")" \
+        '{"fsGroup":1001,"fsGroupChangePolicy":"OnRootMismatch","runAsGroup":1001,"runAsNonRoot":true,"runAsUser":1001,"seccompProfile":{"type":"RuntimeDefault"}}'
+    assert_equals "container security" "$(sorted_json "$POSTGRES_CONTAINER | .securityContext")" \
+        '{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true}'
+    assert_equals "credentials" "$(env_of "$POSTGRES_CONTAINER" POSTGRES_USER) $(env_of "$POSTGRES_CONTAINER" POSTGRES_PASSWORD) $(env_of "$POSTGRES_CONTAINER" POSTGRES_DB)" \
+        "POSTGRES_USER=ontrack-postgresql:username POSTGRES_PASSWORD=ontrack-postgresql:password POSTGRES_DB=ontrack"
+    assert_equals "secret" "$(manifests 'select(.kind == "Secret" and .metadata.name == "ontrack-postgresql") | .data.username + " " + .data.password')" \
+        "$(printf ontrack | base64) $(printf ontrack | base64)"
+fi
+
+test_case "The backend and the contract migrations Job read the credentials of the bundled Postgres from its secret (#183)"
+if render_ok "${ZDU[@]}" --set postgresql.auth.username=yt --set postgresql.auth.password=s3cret; then
+    for container in "$ONTRACK_CONTAINER" "$CONTRACT_CONTAINER"; do
+        assert_equals "username" "$(env_of "$container" SPRING_DATASOURCE_USERNAME)" "SPRING_DATASOURCE_USERNAME=ontrack-postgresql:username"
+        assert_equals "password" "$(env_of "$container" SPRING_DATASOURCE_PASSWORD)" "SPRING_DATASOURCE_PASSWORD=ontrack-postgresql:password"
+    done
+    assert_equals "secret" "$(manifests 'select(.kind == "Secret" and .metadata.name == "ontrack-postgresql") | .data.username + " " + .data.password')" \
+        "$(printf yt | base64) $(printf s3cret | base64)"
+fi
+
+test_case "External Postgres: no Postgres resource (#136, #183)"
+if render_ok --set postgresql.local=false --set postgresql.postgresqlUrl=jdbc:postgresql://db/yontrack; then
+    assert_equals "Postgres resources" "$(resources_matching "^ontrack-postgresql")" ""
+    assert_equals "username" "$(env_of "$ONTRACK_CONTAINER" SPRING_DATASOURCE_USERNAME)" "SPRING_DATASOURCE_USERNAME=ontrack"
+    assert_equals "RabbitMQ" "$(manifests "$RABBITMQ | .metadata.name")" "ontrack-rabbitmq"
+fi
+
+test_case "The Keycloak Postgres keeps its identity, and its data in a new folder of its volume (#183)"
+if render_ok; then
+    assert_equals "serviceName" "$(manifests "$KEYCLOAK_POSTGRES | .spec.serviceName")" "keycloak-postgres"
+    assert_equals "selector" "$(sorted_json "$KEYCLOAK_POSTGRES | .spec.selector")" \
+        '{"matchLabels":{"app.kubernetes.io/instance":"ontrack","app.kubernetes.io/name":"yontrack-chart-keycloak-postgres"}}'
+    assert_equals "volumeClaimTemplates" "$(manifests "$KEYCLOAK_POSTGRES | .spec.volumeClaimTemplates")" "null"
+    VOLUME=$(manifests "$KEYCLOAK_POSTGRES_CONTAINER | .volumeMounts[] | select(.mountPath == \"/var/lib/postgresql/storage\") | .name")
+    assert_equals "claim" "$(manifests "$KEYCLOAK_POSTGRES | .spec.template.spec.volumes[] | select(.name == \"$VOLUME\") | .persistentVolumeClaim.claimName")" \
+        "ontrack-yontrack-chart-keycloak-postgres-pvc"
+    assert_equals "subPath" "$(manifests "$KEYCLOAK_POSTGRES_CONTAINER | .volumeMounts[] | select(.name == \"$VOLUME\") | .subPath")" "postgresql"
+    assert_equals "PGDATA" "$(env_of "$KEYCLOAK_POSTGRES_CONTAINER" PGDATA)" "PGDATA=/var/lib/postgresql/storage/data"
+    assert_equals "credentials" "$(env_of "$KEYCLOAK_POSTGRES_CONTAINER" POSTGRES_USER) $(env_of "$KEYCLOAK_POSTGRES_CONTAINER" POSTGRES_DB)" \
+        "POSTGRES_USER=keycloak POSTGRES_DB=keycloak"
+    grep -qx "listen_addresses = '\*'" <<< "$(manifests 'select(.kind == "ConfigMap" and .metadata.name == "ontrack-yontrack-chart-keycloak-postgres-configuration") | .data["postgresql.conf"]')" \
+        || fail "no configuration for the Keycloak Postgres"
+    PORT=$(manifests 'select(.kind == "Service" and .metadata.name == "ontrack-yontrack-chart-keycloak-postgres") | .spec.ports[0].targetPort')
+    assert_equals "Service port" "$(manifests "$KEYCLOAK_POSTGRES_CONTAINER | .ports[] | select(.name == \"$PORT\") | .containerPort")" "5432"
+fi
+
+test_case "The Keycloak Postgres reads its credentials from a secret when configured (#183)"
+if render_ok --set auth.keycloak.persistence.connection.secret.enabled=true; then
+    assert_equals "credentials" "$(env_of "$KEYCLOAK_POSTGRES_CONTAINER" POSTGRES_USER) $(env_of "$KEYCLOAK_POSTGRES_CONTAINER" POSTGRES_PASSWORD)" \
+        "POSTGRES_USER=keycloak-postgresql:username POSTGRES_PASSWORD=keycloak-postgresql:password"
+fi
+
+test_case "The bundled RabbitMQ: AMQP only, on a new data folder (#183)"
+if render_ok; then
+    assert_equals "15672" "$(per_manifest '.. | select(tag == "!!int" and . == 15672)')" ""
+    assert_equals "ports" "$(manifests "$RABBITMQ_CONTAINER | [.ports[] | .name + \":\" + (.containerPort | tostring)] | join(\",\")")" "amqp:5672"
+    assert_equals "data mount" "$(manifests "$RABBITMQ_CONTAINER | .volumeMounts[] | select(.name == \"data\") | .mountPath + \" \" + .subPath")" \
+        "/var/lib/rabbitmq rabbitmq"
+    CONF=$(manifests 'select(.kind == "Secret" and .metadata.name == "ontrack-rabbitmq") | .data["rabbitmq.conf"]' | base64 -d)
+    grep -qx "default_user = ontrack" <<< "$CONF" || fail "no default_user in: $CONF"
+    grep -qx "default_pass = ontrack" <<< "$CONF" || fail "no default_pass in: $CONF"
+    grep -qx "loopback_users = none" <<< "$CONF" || fail "no loopback_users in: $CONF"
+    [ "$(manifests "$RABBITMQ | .spec.template.metadata.annotations[\"checksum/secret\"]")" != "null" ] || fail "no checksum/secret annotation"
+    assert_equals "readiness" "$(manifests_json "$RABBITMQ_CONTAINER | .readinessProbe.tcpSocket")" '{"port":"amqp"}'
+    assert_equals "liveness" "$(manifests "$RABBITMQ_CONTAINER | .livenessProbe.exec.command | join(\" \")")" "rabbitmq-diagnostics -q ping"
+    assert_equals "backend host" "$(env_of "$ONTRACK_CONTAINER" SPRING_RABBITMQ_HOST)" "SPRING_RABBITMQ_HOST=ontrack-rabbitmq"
+    assert_equals "backend credentials" "$(env_of "$ONTRACK_CONTAINER" SPRING_RABBITMQ_USERNAME) $(env_of "$ONTRACK_CONTAINER" SPRING_RABBITMQ_PASSWORD)" \
+        "SPRING_RABBITMQ_USERNAME=ontrack-rabbitmq:username SPRING_RABBITMQ_PASSWORD=ontrack-rabbitmq:password"
+fi
+
+test_case "External RabbitMQ: no RabbitMQ resource, the backend uses rabbitmq.external (#183)"
+if render_ok --set rabbitmq.local=false --set rabbitmq.external.host=mq.example.com --set rabbitmq.external.ssl=true \
+    --set rabbitmq.auth.username=yt --set rabbitmq.auth.password=s3cret; then
+    assert_equals "RabbitMQ resources" "$(resources_matching "rabbitmq")" ""
+    assert_equals "env" "$(manifests "$ONTRACK_CONTAINER | .env[] | select(.name | test(\"^SPRING_RABBITMQ\")) | .name + \"=\" + .value" | tr '\n' ' ')" \
+        "SPRING_RABBITMQ_HOST=mq.example.com SPRING_RABBITMQ_PORT=5672 SPRING_RABBITMQ_VIRTUAL_HOST=/ SPRING_RABBITMQ_SSL_ENABLED=true SPRING_RABBITMQ_USERNAME=yt SPRING_RABBITMQ_PASSWORD=s3cret "
+fi
+
+test_case "External RabbitMQ requires a host (#183)"
+render_fails_with "rabbitmq.external.host is required when rabbitmq.local is false" --set rabbitmq.local=false
+
+test_case "Values of the Bitnami sub-charts fail the render (#183)"
+# <value set> <key named by the error>
+while read -r stale key; do
+    render_fails_with "$key is not supported since 6.0" --set "$stale"
+    render_fails_with "\"Upgrading to 6.x\"" --set "$stale"
+done <<'CASES'
+postgresql.primary.nodeSelector.pool=db postgresql.primary
+postgresql.persistence.existingClaim=pvc postgresql.persistence.existingClaim
+rabbitmq.image.registry=docker.io rabbitmq.image.registry
+rabbitmq.auth.erlangCookie=x rabbitmq.auth.erlangCookie
+rabbitmq.clustering.enabled=false rabbitmq.clustering
+rabbitmq.replicaCount=1 rabbitmq.replicaCount
+CASES
+
+test_case "Node placement & resources of the bundled Postgres & RabbitMQ (#183)"
+if render_ok --set postgresql.nodeSelector.pool=db --set 'rabbitmq.tolerations[0].key=mq' \
+    --set postgresql.resources.limits.memory=1Gi; then
+    assert_equals "Postgres node selector" "$(manifests_json "$POSTGRES | .spec.template.spec.nodeSelector")" '{"pool":"db"}'
+    assert_equals "RabbitMQ tolerations" "$(manifests_json "$RABBITMQ | .spec.template.spec.tolerations")" '[{"key":"mq"}]'
+    assert_equals "Postgres resources" "$(sorted_json "$POSTGRES_CONTAINER | .resources")" \
+        '{"limits":{"cpu":"150m","memory":"1Gi"},"requests":{"cpu":"100m","memory":"128Mi"}}'
+    assert_equals "RabbitMQ resources" "$(sorted_json "$RABBITMQ_CONTAINER | .resources")" \
+        '{"limits":{"cpu":"375m","memory":"384Mi"},"requests":{"cpu":"250m","memory":"256Mi"}}'
+fi
+
+test_case "No NetworkPolicy by default (#183)"
+if render_ok; then
+    assert_equals "policies" "$(manifests 'select(.kind == "NetworkPolicy") | .metadata.name')" ""
+fi
+
+test_case "NetworkPolicies of the bundled Postgres & RabbitMQ (#183)"
+if render_ok --set networkPolicy.enabled=true --set 'networkPolicy.from[0].namespaceSelector.matchLabels.team=ops'; then
+    assert_equals "policies" "$(per_manifest 'select(.kind == "NetworkPolicy") | .metadata.name' | sort | tr '\n' ' ')" "ontrack-postgresql ontrack-rabbitmq "
+    assert_equals "Postgres" "$(sorted_json 'select(.kind == "NetworkPolicy" and .metadata.name == "ontrack-postgresql") | .spec')" \
+        '{"ingress":[{"from":[{"podSelector":{}},{"namespaceSelector":{"matchLabels":{"team":"ops"}}}],"ports":[{"port":5432,"protocol":"TCP"}]}],"podSelector":{"matchLabels":{"app.kubernetes.io/component":"primary","app.kubernetes.io/instance":"ontrack","app.kubernetes.io/name":"postgresql"}},"policyTypes":["Ingress"]}'
+    assert_equals "RabbitMQ ports" "$(manifests_json 'select(.kind == "NetworkPolicy" and .metadata.name == "ontrack-rabbitmq") | .spec.ingress[0].ports')" \
+        '[{"port":5672,"protocol":"TCP"}]'
+fi
+
+test_case "NetworkPolicies: none for external services (#183)"
+if render_ok --set networkPolicy.enabled=true --set rabbitmq.local=false --set rabbitmq.external.host=mq \
+    --set postgresql.local=false --set postgresql.postgresqlUrl=jdbc:postgresql://db/yontrack; then
+    assert_equals "policies" "$(manifests 'select(.kind == "NetworkPolicy") | .metadata.name')" ""
+fi
+
+test_case "OpenShift: no security context on the bundled Postgres & RabbitMQ (#183)"
+if render_ok --set openshift.enabled=true; then
+    for workload in "$POSTGRES" "$KEYCLOAK_POSTGRES" "$RABBITMQ"; do
+        assert_equals "runAsUser/fsGroup" "$(manifests "$workload | .. | select(has(\"runAsUser\") or has(\"fsGroup\")) | path | join(\".\")" 2> /dev/null)" ""
+        assert_equals "security contexts" "$(manifests "$workload | [.spec.template.spec.securityContext, .spec.template.spec.containers[].securityContext] | map(select(. != null)) | length")" "0"
+    done
+fi
 
 echo "High availability"
 

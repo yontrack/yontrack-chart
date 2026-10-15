@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a Helm 3 chart repository that deploys **Yontrack** (a CI/CD tracking platform) to Kubernetes. The chart is published to Docker Hub as an OCI artifact at `oci://registry-1.docker.io/yontrack/yontrack-chart` (the legacy `nemerosa/yontrack-chart` location only receives 5.x versions, published from the `v5` branch).
 
-The chart bundles two sub-charts: PostgreSQL 17 and RabbitMQ 4 (Bitnami). Since 6.0, Elasticsearch is no longer bundled: Yontrack searches in Postgres (`pg_trgm`), and an external Elasticsearch is only an optional target for the metrics export (`elasticsearch.*` values).
+The chart has no sub-chart: it deploys its own PostgreSQL 17 and RabbitMQ 4, on the official images (since 6.0.0-beta.6, replacing the Bitnami sub-charts; their StatefulSets keep the names, selectors and volume claims of the sub-charts, which are immutable). Since 6.0, Elasticsearch is no longer bundled: Yontrack searches in Postgres (`pg_trgm`), and an external Elasticsearch is only an optional target for the metrics export (`elasticsearch.*` values).
 
 ## Common Commands
 
@@ -49,7 +49,7 @@ helm package charts/yontrack
 The main chart lives in `charts/yontrack/`. Key files:
 
 - `Chart.yaml` — chart metadata; `appVersion` is auto-updated by Yontrack's auto-versioning system via PRs
-- `values.yaml` — all configurable defaults (825 lines); all values are documented inline for `helm-docs`
+- `values.yaml` — all configurable defaults; all values are documented inline for `helm-docs`
 - `templates/_helpers.tpl` — shared template helpers (naming, labels, secret generation)
 - `files/themes/` — custom Keycloak login theme (packaged as `yontrack.tar.gz`)
 - `files/partials/keycloak/` — Keycloak realm/client JSON templates
@@ -62,9 +62,9 @@ The root-level `values.yaml` is a local override file (gitignored) used for loca
 |-----------|----------------|-------|
 | Yontrack backend | `ontrack-*` | Deployment; PVC for data, or an ephemeral volume with `ontrack.zeroDowntimeUpgrades` |
 | Next.js UI | `ui-*` | Frontend, uses NextAuth |
-| PostgreSQL | sub-chart | Yontrack's main database |
-| RabbitMQ | sub-chart | Messaging |
-| Keycloak | `keycloak-*` | Optional; has its own PostgreSQL StatefulSet |
+| PostgreSQL | `postgresql-*` | Yontrack's main database; optional (`postgresql.local`); StatefulSet from the `ontrack.postgres.statefulset` helper (`_postgres.tpl`) |
+| RabbitMQ | `rabbitmq-*` | Messaging; optional (`rabbitmq.local`, else `rabbitmq.external`) |
+| Keycloak | `keycloak-*` | Optional; has its own PostgreSQL StatefulSet, from the same helper |
 | MinIO-compatible storage | `minio-*` | Optional (`auditTrail.minio.enabled`); Silo image, audit trail evidence, bucket created by `files/minio/start.sh` |
 
 ### Authentication Modes

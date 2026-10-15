@@ -57,9 +57,19 @@ Environment of the Yontrack backend container, shared by the Deployment and the 
 # Database configuration
 ########################################
 {{- if .Values.postgresql.local }}
-# For test service
+# Bundled database
 - name: SPRING_DATASOURCE_URL
-  value: "jdbc:postgresql://{{ .Release.Name }}-postgresql-hl:5432/{{ .Values.postgresql.auth.database }}"
+  value: "jdbc:postgresql://{{ include "ontrack.postgresql.fullname" . }}-hl:5432/{{ .Values.postgresql.auth.database }}"
+- name: SPRING_DATASOURCE_USERNAME
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "ontrack.postgresql.fullname" . | quote }}
+      key: username
+- name: SPRING_DATASOURCE_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "ontrack.postgresql.fullname" . | quote }}
+      key: password
 # For a managed database, using external environment variables
 {{- else if .Values.postgresql.postgresFromEnv }}
 # Nothing to be declared here
@@ -150,12 +160,34 @@ Environment of the Yontrack backend container, shared by the Deployment and the 
 ########################################
 # RabbitMQ configuration
 ########################################
+{{- if .Values.rabbitmq.local }}
 - name: SPRING_RABBITMQ_HOST
-  value: "{{ .Release.Name }}-rabbitmq-headless"
+  value: {{ include "ontrack.rabbitmq.fullname" . | quote }}
+- name: SPRING_RABBITMQ_USERNAME
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "ontrack.rabbitmq.fullname" . | quote }}
+      key: username
+- name: SPRING_RABBITMQ_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "ontrack.rabbitmq.fullname" . | quote }}
+      key: password
+{{- else }}
+{{- $external := .Values.rabbitmq.external }}
+- name: SPRING_RABBITMQ_HOST
+  value: {{ required "rabbitmq.external.host is required when rabbitmq.local is false" $external.host | quote }}
+- name: SPRING_RABBITMQ_PORT
+  value: {{ $external.port | quote }}
+- name: SPRING_RABBITMQ_VIRTUAL_HOST
+  value: {{ $external.virtualHost | quote }}
+- name: SPRING_RABBITMQ_SSL_ENABLED
+  value: {{ $external.ssl | quote }}
 - name: SPRING_RABBITMQ_USERNAME
   value: {{ .Values.rabbitmq.auth.username | quote }}
 - name: SPRING_RABBITMQ_PASSWORD
   value: {{ .Values.rabbitmq.auth.password | quote }}
+{{- end }}
 ########################################
 # Authentication
 ########################################

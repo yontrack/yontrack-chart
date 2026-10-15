@@ -196,6 +196,13 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
+True when the security contexts are left to OpenShift (its SCC assigns the user & group of the namespace)
+*/}}
+{{- define "ontrack.openshift.adaptSecurityContext" -}}
+{{- if and .Values.openshift.enabled (has .Values.global.compatibility.openshift.adaptSecurityContext (list "auto" "force")) }}true{{ end }}
+{{- end }}
+
+{{/*
 Creating a password or reusing it if already existing in the given secret
 
 Parameters:
@@ -434,8 +441,7 @@ topologySpreadConstraints:
 
 {{/*
 Connection budget of the bundled Postgres: the most connections the backends can open at the same time, checked
-against postgresql.maxConnections. The sub-chart renders max_connections in its own context, without the ontrack.*
-values: the chart declares it, and checks it here.
+against postgresql.maxConnections, its max_connections.
 
 ontrack.replicas backends, each with its main pool (ontrack.database.poolSize), which the job scheduler also uses
 since yontrack/yontrack#2077 (6.0.0-beta.8). With zero-downtime upgrades, one more backend during the rollout
@@ -584,4 +590,70 @@ tls:
       - {{ .Values.ingress.host }}
     secretName: {{ .Values.ingress.tls.secretName | default (printf "%s-tls" .Values.ingress.host) | quote }}
 {{- end }}
+{{- end }}
+
+{{/*
+Since 6.0, the chart deploys its own Postgres & RabbitMQ instead of the Bitnami sub-charts (#183): any other key under
+postgresql or rabbitmq, like those of the sub-charts, fails the render instead of being silently ignored.
+Each key maps to the list of its allowed sub-keys, or to "" when its value is free.
+*/}}
+{{- define "ontrack.middleware.validate" -}}
+{{- $image := list "repository" "tag" "pullPolicy" }}
+{{- $persistence := list "size" "storageClass" "annotations" }}
+{{- $schemas := dict
+    "postgresql" (dict
+        "local" "" "auth" (list "database" "username" "password") "maxConnections" "" "config" ""
+        "image" $image "persistence" $persistence "resources" "" "nodeSelector" "" "tolerations" "" "affinity" ""
+        "postgresqlUrl" "" "postgresFromEnv" "")
+    "rabbitmq" (dict
+        "local" "" "auth" (list "username" "password")
+        "image" $image "persistence" $persistence "resources" "" "nodeSelector" "" "tolerations" "" "affinity" ""
+        "external" (list "host" "port" "virtualHost" "ssl"))
+}}
+{{- range $component, $schema := $schemas }}
+  {{- range $key, $value := index $.Values $component }}
+    {{- $path := printf "%s.%s" $component $key }}
+    {{- if not (hasKey $schema $key) }}
+      {{- include "ontrack.middleware.unsupported" $path }}
+    {{- else if and (kindIs "slice" (index $schema $key)) (kindIs "map" $value) }}
+      {{- range $subKey, $_ := $value }}
+        {{- if not (has $subKey (index $schema $key)) }}
+          {{- include "ontrack.middleware.unsupported" (printf "%s.%s" $path $subKey) }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}
+
+{{- define "ontrack.middleware.unsupported" -}}
+{{- fail (printf "%s is not supported since 6.0: the chart deploys its own Postgres & RabbitMQ instead of the Bitnami sub-charts. See the \"Upgrading to 6.x\" section of the chart README." .) }}
+{{- end }}
+
+{{/*
+NetworkPolicy of a bundled service: connections from the pods of the namespace and from networkPolicy.from, on its port only.
+Parameters: root, name, labels & selectorLabels (rendered), port.
+*/}}
+{{- define "ontrack.networkPolicy" -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .name }}
+  labels:
+    {{- .labels | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- .selectorLabels | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+        {{- with .root.Values.networkPolicy.from }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      ports:
+        - port: {{ .port }}
+          protocol: TCP
 {{- end }}

@@ -45,17 +45,14 @@ securityContext: { }
 # runAsNonRoot: true
 # runAsUser: 1000
 
-# -- Global configuration for all sub-charts
+# -- Global configuration
 global:
   # -- Configuration for OpenShift
   compatibility:
     openshift:
-      # -- Whether to adapt the security context for OpenShift
+      # -- Whether to adapt the security context for OpenShift: with `openshift.enabled`, `auto` or `force` leave
+      # the security contexts of the pods to OpenShift
       adaptSecurityContext: auto
-  security:
-    # -- Skips the image verification of the Bitnami sub-charts, which all deliberately point to the `bitnamilegacy/*` images.
-    # Without it, the RabbitMQ sub-chart refuses to render when it is the only Bitnami sub-chart (external Postgres).
-    allowInsecureImages: true
 
 service:
   # -- Service type for the Yontrack service.
@@ -771,12 +768,12 @@ auth:
         #   set, choosing the default provisioner.  (gp2 on AWS, standard on
         #   GKE, AWS & OpenStack)
         storageClass:
-      # -- Image for Postgres
+      # -- Image for Postgres, the same as the bundled one (`postgresql.image`)
       image:
         # -- Image repository
-        repository: bitnamilegacy/postgresql
+        repository: postgres
         # -- Image tag
-        tag: 17
+        tag: 17.6-bookworm
         # -- Pull policy
         pullPolicy: IfNotPresent
       # -- Resources to allocate to Postgres
@@ -852,59 +849,129 @@ auth:
       # Claim that contains the email
       # email: email
 
-# -- Local database
+# Database of Yontrack: the bundled Postgres (`postgresql.local: true`), or an external one.
+# Since 6.0, the chart deploys its own Postgres instead of the Bitnami sub-chart: the keys of the sub-chart fail the
+# render (see "Upgrading to 6.x" in the chart README).
 postgresql:
-  image:
-    # -- See the announcement at https://hub.docker.com/r/bitnami/rabbitmq
-    repository: bitnamilegacy/postgresql
-  # -- Enabling the local database
+  # -- Deploying the bundled Postgres. When `false`, Yontrack connects to `postgresql.postgresqlUrl`, or to the
+  # database set by `postgresql.postgresFromEnv`.
   local: true
-  # -- Authentication parameters
+  # -- Credentials of Yontrack and its database. With the bundled Postgres, stored in the `<release>-postgresql`
+  # secret, and only used to create the database at the first start: changing them later has no effect on Postgres.
   auth:
-    # -- Name of the database to create
+    # -- Name of the database
     database: ontrack
-    # -- Credentials to be used
+    # -- Username
     username: ontrack
-    # -- Credentials to be used
+    # -- Password
     password: ontrack
   # -- `max_connections` of the bundled database (`postgresql.local: true`). The render fails when it is below the
   # connection budget of the backends (see "Database connections" in the chart README). Changing it restarts Postgres.
   maxConnections: 150
-  primary:
-    # -- Extra configuration of the bundled database, rendered by the sub-chart, where `.Values` are the `postgresql.*`
-    # values. Overriding it takes over `max_connections`: keep a `max_connections = ...` line in it.
-    extendedConfiguration: "max_connections = {{ .Values.maxConnections }}"
-    # Other settings of the sub-chart, for example:
-#    pgHbaConfiguration: |-
-#      host all all 0.0.0.0/0 trust
-  # -- For external database
+  # -- Extra lines of the `postgresql.conf` of the bundled database, after `listen_addresses` and `max_connections`
+  # (set `postgresql.maxConnections` instead of `max_connections`). Changing them restarts Postgres.
+  config: ""
+  # Image of the bundled database
+  image:
+    # -- Repository of the image
+    repository: postgres
+    # -- Tag of the image. Postgres 17 on Debian 12, like the Bitnami image of the 5.x charts, so that their data is used as is.
+    tag: 17.6-bookworm
+    # -- Pull policy
+    pullPolicy: IfNotPresent
+  # Volume of the bundled database. Its claim is immutable: an existing installation keeps its size & storage class
+  # (see "Upgrading to 6.x" in the chart README).
+  persistence:
+    # -- Size of the volume
+    size: 8Gi
+    # -- Storage class of the volume ("-" for none, empty for the default one)
+    storageClass: ""
+    # -- Annotations of the claim
+    annotations: {}
+  # -- Resources of the bundled database
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 150m
+      memory: 192Mi
+  # -- Node selector of the bundled database
+  nodeSelector: {}
+  # -- Tolerations of the bundled database
+  tolerations: []
+  # -- Affinity of the bundled database
+  affinity: {}
+  # -- JDBC URL of the external database (`postgresql.local: false`), used with `postgresql.auth.username` & `password`
   postgresqlUrl: ""
-  # -- For external database, using environment variables
+  # -- External database (`postgresql.local: false`) set by environment variables (`SPRING_DATASOURCE_*`, for example
+  # in `ontrack.extraConfig`) instead of `postgresql.postgresqlUrl`
   postgresFromEnv: false
 
-# -- Local database
-keycloak-postgresql:
-  image:
-    # -- See the announcement at https://hub.docker.com/r/bitnami/rabbitmq
-    repository: bitnamilegacy/postgresql
-  # -- Authentication parameters
-  auth:
-    # -- Name of the database to create
-    database: keycloak
-    # -- Credentials to be used
-    username: keycloak
-    # -- Credentials to be used
-    password: keycloak
-
-# -- Local RabbitMQ for message processing
+# Message broker of Yontrack: the bundled RabbitMQ (`rabbitmq.local: true`), or an external one.
+# Since 6.0, the chart deploys its own RabbitMQ instead of the Bitnami sub-chart: the keys of the sub-chart fail the
+# render (see "Upgrading to 6.x" in the chart README).
 rabbitmq:
-  image:
-    # See the announcement at https://hub.docker.com/r/bitnami/rabbitmq
-    repository: bitnamilegacy/rabbitmq
+  # -- Deploying the bundled RabbitMQ, a single node. When `false`, Yontrack connects to `rabbitmq.external`.
+  local: true
+  # -- Credentials of Yontrack. With the bundled RabbitMQ, stored in the `<release>-rabbitmq` secret, and only used
+  # to create the user at the first start: changing them later has no effect on RabbitMQ.
   auth:
+    # -- Username
     username: ontrack
+    # -- Password
     password: ontrack
-    erlangCookie: ontrack
+  # Image of the bundled RabbitMQ
+  image:
+    # -- Repository of the image. Without the management plugin, which Yontrack does not use: for its UI, use the
+    # `-management` variant of the tag, and a port-forward to 15672 (the Services do not expose it).
+    repository: rabbitmq
+    # -- Tag of the image
+    tag: "4.1.3"
+    # -- Pull policy
+    pullPolicy: IfNotPresent
+  # Volume of the bundled RabbitMQ. Its claim is immutable: an existing installation keeps its size & storage class
+  # (see "Upgrading to 6.x" in the chart README).
+  persistence:
+    # -- Size of the volume
+    size: 8Gi
+    # -- Storage class of the volume ("-" for none, empty for the default one)
+    storageClass: ""
+    # -- Annotations of the claim
+    annotations: {}
+  # -- Resources of the bundled RabbitMQ
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 375m
+      memory: 384Mi
+  # -- Node selector of the bundled RabbitMQ
+  nodeSelector: {}
+  # -- Tolerations of the bundled RabbitMQ
+  tolerations: []
+  # -- Affinity of the bundled RabbitMQ
+  affinity: {}
+  # External RabbitMQ (`rabbitmq.local: false`), with the `rabbitmq.auth` credentials
+  external:
+    # -- Host of the external RabbitMQ (required when `rabbitmq.local` is `false`)
+    host: ""
+    # -- AMQP port
+    port: 5672
+    # -- Virtual host
+    virtualHost: /
+    # -- Connecting with TLS
+    ssl: false
+
+# NetworkPolicies of the bundled Postgres & RabbitMQ
+networkPolicy:
+  # -- Rendering a NetworkPolicy for the bundled Postgres and one for the bundled RabbitMQ: they then only accept
+  # connections on their port (5432, 5672), from the pods of the namespace and from `networkPolicy.from`
+  enabled: false
+  # -- Other sources allowed to connect to the bundled Postgres & RabbitMQ (`NetworkPolicyPeer` list), for example
+  # `namespaceSelector`s
+  from: []
 
 # External Elasticsearch, only used for the optional export of the metrics.
 # Since 6.0, the chart no longer bundles Elasticsearch: Yontrack searches in Postgres.

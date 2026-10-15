@@ -1,0 +1,9 @@
+{{- if and .Values.networkPolicy.enabled .Values.rabbitmq.local }}
+{{- include "ontrack.networkPolicy" (dict
+    "root" .
+    "name" (include "ontrack.rabbitmq.fullname" .)
+    "labels" (include "ontrack.labels.rabbitmq" .)
+    "selectorLabels" (include "ontrack.selectorLabels.rabbitmq" .)
+    "port" 5672
+) }}
+{{- end }}

@@ -1,0 +1,15 @@
+# values-ha.yaml for a previous chart with the Bitnami sub-charts (up to 6.0.0-beta.5, #183): only applied when
+# installing it (scripts/upgrade-test.sh), its Postgres values failing the render of the later charts.
+ontrack:
+  replicas: 2
+  topologySpread:
+    whenUnsatisfiable: DoNotSchedule
+  ui:
+    replicas: 2
+postgresql:
+  primary:
+    nodeSelector:
+      upgrade-test/services: "true"
+rabbitmq:
+  nodeSelector:
+    upgrade-test/services: "true"

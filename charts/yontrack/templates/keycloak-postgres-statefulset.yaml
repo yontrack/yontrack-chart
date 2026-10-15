@@ -1,112 +1,29 @@
 {{- if and (eq "keycloak" .Values.auth.kind) (not .Values.auth.keycloak.external.enabled) }}
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: {{ include "ontrack.fullname" . }}-keycloak-postgres
-  labels:
-    {{ include "ontrack.labels.keycloak.postgres" . | nindent 4 }}
-spec:
-  serviceName: keycloak-postgres
-  selector:
-    matchLabels:
-      {{ include "ontrack.selectorLabels.keycloak.postgres" . | nindent 6 }}
-  template:
-    metadata:
-      {{- with .Values.podAnnotations }}
-      annotations:
-        {{ toYaml . | nindent 8 }}
-      {{- end }}
-      labels:
-        {{ include "ontrack.selectorLabels.keycloak.postgres" . | nindent 8 }}
-    spec:
-      serviceAccountName: {{ include "ontrack.serviceAccountName" . }}
-      {{- if not (and .Values.openshift.enabled (or (eq .Values.global.compatibility.openshift.adaptSecurityContext "force") (eq .Values.global.compatibility.openshift.adaptSecurityContext "auto"))) }}
-      securityContext:
-        {{ toYaml .Values.podSecurityContext | nindent 8 }}
-      {{- end }}
-      containers:
-        - name: postgres
-          {{- if not (and .Values.openshift.enabled (or (eq .Values.global.compatibility.openshift.adaptSecurityContext "force") (eq .Values.global.compatibility.openshift.adaptSecurityContext "auto"))) }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          {{- end }}
-          image: {{ .Values.auth.keycloak.persistence.image.repository }}:{{ .Values.auth.keycloak.persistence.image.tag }}
-          imagePullPolicy: {{ .Values.auth.keycloak.persistence.image.pullPolicy }}
-          env:
-            - name: POSTGRES_DB
-              value: {{ .Values.auth.keycloak.persistence.connection.database | quote }}
-            {{- if .Values.auth.keycloak.persistence.connection.secret.enabled }}
-            - name: POSTGRES_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.auth.keycloak.persistence.connection.secret.name }}
-                  key: "username"
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.auth.keycloak.persistence.connection.secret.name }}
-                  key: "password"
-            {{- else }}
-            - name: POSTGRES_USER
-              value: {{ .Values.auth.keycloak.persistence.connection.username | quote }}
-            - name: POSTGRES_PASSWORD
-              value: {{ .Values.auth.keycloak.persistence.connection.password | quote }}
-            {{- end }}
-          volumeMounts:
-            - name: postgres-storage
-              mountPath: /var/lib/postgresql/data
-              subPath: postgres
-          ports:
-            - containerPort: 5432
-              protocol: TCP
-              name: postgres
-          {{- if .Values.auth.keycloak.persistence.resources }}
-          resources: {{ toYaml .Values.auth.keycloak.persistence.resources | nindent 12 }}
-          {{- end }}
-          livenessProbe:
-            exec:
-              command:
-                - /bin/sh
-                - -c
-                - pg_isready -U {{ .Values.auth.keycloak.persistence.connection.username }} -d {{ .Values.auth.keycloak.persistence.connection.database }}
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
-          readinessProbe:
-            exec:
-              command:
-                - /bin/sh
-                - -c
-                - pg_isready -U {{ .Values.auth.keycloak.persistence.connection.username }} -d {{ .Values.auth.keycloak.persistence.connection.database }}
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 3
-          startupProbe:
-            exec:
-              command:
-                - /bin/sh
-                - -c
-                - pg_isready -U {{ .Values.auth.keycloak.persistence.connection.username }} -d {{ .Values.auth.keycloak.persistence.connection.database }}
-            initialDelaySeconds: 10
-            periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 30
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{ toYaml . | nindent 8 }}
-      {{- end }}
-      {{- if .Values.affinity }}
-      affinity:
-        {{ toYaml .Values.affinity | nindent 8 }}
-      {{- end }}
-      {{- if .Values.tolerations }}
-      tolerations:
-        {{ toYaml .Values.tolerations | nindent 8 }}
-      {{- end }}
-      volumes:
-        - name: postgres-storage
-          persistentVolumeClaim:
-            claimName: {{ include "ontrack.fullname" . }}-keycloak-postgres-pvc
+{{- $persistence := .Values.auth.keycloak.persistence }}
+{{- $connection := $persistence.connection }}
+{{- $credentials := dict "username" $connection.username "password" $connection.password }}
+{{- if $connection.secret.enabled }}
+{{- $credentials = dict "secret" $connection.secret.name "usernameKey" "username" "passwordKey" "password" }}
+{{- end }}
+{{- /* Data in the postgresql folder of the volume, never in its postgres folder, where the versions on the official
+image (2025-12) may have left a stale database: the Bitnami image of the later ones did not persist anything (#183) */}}
+{{- include "ontrack.postgres.statefulset" (dict
+    "root" .
+    "name" (printf "%s-keycloak-postgres" (include "ontrack.fullname" .))
+    "serviceName" "keycloak-postgres"
+    "labels" (include "ontrack.labels.keycloak.postgres" .)
+    "selectorLabels" (include "ontrack.selectorLabels.keycloak.postgres" .)
+    "configMap" (printf "%s-keycloak-postgres-configuration" (include "ontrack.fullname" .))
+    "configData" (include "ontrack.keycloak.postgres.configData" .)
+    "image" $persistence.image
+    "database" $connection.database
+    "credentials" $credentials
+    "claimName" (printf "%s-keycloak-postgres-pvc" (include "ontrack.fullname" .))
+    "subPath" "postgresql"
+    "resources" $persistence.resources
+    "nodeSelector" .Values.nodeSelector
+    "tolerations" .Values.tolerations
+    "affinity" .Values.affinity
+    "podAnnotations" .Values.podAnnotations
+) }}
 {{- end }}
