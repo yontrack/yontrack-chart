@@ -771,12 +771,12 @@ auth:
         #   set, choosing the default provisioner.  (gp2 on AWS, standard on
         #   GKE, AWS & OpenStack)
         storageClass:
-      # -- Image for Postgres
+      # -- Image for Postgres, the same as the bundled one (`postgresql.image`)
       image:
         # -- Image repository
-        repository: bitnamilegacy/postgresql
+        repository: postgres
         # -- Image tag
-        tag: 17
+        tag: 17.6-bookworm
         # -- Pull policy
         pullPolicy: IfNotPresent
       # -- Resources to allocate to Postgres

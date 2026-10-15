@@ -1,0 +1,10 @@
+{{- if and (eq "keycloak" .Values.auth.kind) (not .Values.auth.keycloak.external.enabled) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ontrack.fullname" . }}-keycloak-postgres-configuration
+  labels:
+    {{- include "ontrack.labels.keycloak.postgres" . | nindent 4 }}
+data:
+  {{- include "ontrack.keycloak.postgres.configData" . | nindent 2 }}
+{{- end }}

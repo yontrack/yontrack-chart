@@ -271,3 +271,10 @@ Data of the ConfigMap of the bundled Postgres
 {{- define "ontrack.postgresql.configData" -}}
 {{- include "ontrack.postgres.configData" (dict "maxConnections" .Values.postgresql.maxConnections "config" .Values.postgresql.config) }}
 {{- end }}
+
+{{/*
+Data of the ConfigMap of the Keycloak Postgres
+*/}}
+{{- define "ontrack.keycloak.postgres.configData" -}}
+{{- include "ontrack.postgres.configData" dict }}
+{{- end }}
