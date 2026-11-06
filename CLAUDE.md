@@ -83,8 +83,8 @@ Templates exist in pairs for many secrets: a plain Kubernetes secret (`*-secret.
 
 Two release lines:
 
-- `main` — 6.x line. Chart versions with a prerelease suffix (`6.0.0-beta.N`) are published as GitHub prereleases.
-- `v5` — 5.x patch line, with its own `release.yml` and `.yontrack/ci.yaml`.
+- `main` — 6.x line. Chart versions are plain semver (`6.0.0`, `6.0.1`, …) and their GitHub release is marked as Latest (`--latest`); a version with a prerelease suffix (`6.1.0-beta.N`) would still be published as a GitHub prerelease.
+- `v5` — 5.x patch line, with its own `release.yml` and `.yontrack/ci.yaml`. Its GitHub releases are created with `--latest=false`, so 5.x patches never take Latest from 6.x.
 
 Fixes needed on both lines land on `main` and are cherry-picked to `v5` (no forward merges: `Chart.yaml` differs on every commit).
 
@@ -96,11 +96,9 @@ Fixes needed on both lines land on `main` and are cherry-picked to `v5` (no forw
 5. If new version: pushes OCI artifact to Docker Hub and creates a GitHub release with a generated changelog
 6. Calls `upgrade-tests.yml` (whatever the release did), which records each mode on the Yontrack build as `upgrade-<mode>`; with `build`, they grant `BRONZE`. On other branches and fork PRs, `upgrade-tests.yml` runs on its own and records nothing
 
-A merge that leaves `version` unchanged publishes nothing. So every PR that changes what the chart ships (templates, values, files, sub-charts) ends with its own commit, `chore: chart <version>`, that bumps `version` in `Chart.yaml` to the next one on its line (on `main`: `6.0.0-beta.N` → `6.0.0-beta.N+1`). In that commit, also run `helm-docs charts/yontrack`, which updates the version badge in `charts/yontrack/README.md`. Changes to docs, scripts or CI alone keep the version.
+A merge that leaves `version` unchanged publishes nothing. So every PR that changes what the chart ships (templates, values, files, sub-charts) ends with its own commit, `chore: chart <version>`, that bumps `version` in `Chart.yaml` to the next one on its line (on `main`: `6.0.N` → `6.0.N+1`, or the next minor for new features). In that commit, also run `helm-docs charts/yontrack`, which updates the version badge in `charts/yontrack/README.md`. Changes to docs, scripts or CI alone keep the version.
 
 `.yontrack/ci.yaml` configures Yontrack's auto-versioning: when a Yontrack build on the upstream `main` branch is promoted to `RELEASE`, a PR is automatically opened updating `appVersion` in `Chart.yaml` (as on `v5`, which follows `RELEASE` on `release-5.5`). It follows `RELEASE`, not `GOLD`: `GOLD` only *starts* Yontrack's `release.yml`, while the build's version is still an rc candidate (`<version>-rc-<build>`), a tag on GHCR but never on Docker Hub, which `scripts/check-images.sh` rejects. `RELEASE` is granted once `release.yml` has published the images and rewritten the version, so `${VERSION}` is always a Docker Hub tag.
-
-Until yontrack/yontrack#2070 lands, pre-releases are never granted `RELEASE`, so betas do not bump `appVersion` on their own: if one must reach the chart, set `appVersion` by hand to the version published on Docker Hub (as #155 did).
 
 ### Documentation Generation
 

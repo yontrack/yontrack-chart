@@ -80,7 +80,8 @@ jobs:
             exit 1
           fi
           echo "Already released: $RELEASED"
-          # Semver prerelease (6.0.0-alpha.0, ...)
+          # Since 6.0.0, versions are plain semver, published as the Latest release. A semver prerelease
+          # (6.1.0-beta.0, ...) would still be published as a prerelease, never as Latest
           if [[ "$CURRENT_RELEASE" == *-* ]]; then
             PRERELEASE=true
           else
@@ -115,7 +116,7 @@ jobs:
           gh release create ${{ steps.release.outputs.currentRelease }} \
             --title "${{ steps.release.outputs.currentRelease }}" \
             --notes-file changelog.md \
-            ${{ steps.release.outputs.prerelease == 'true' && '--prerelease' || '' }}
+            ${{ steps.release.outputs.prerelease == 'true' && '--prerelease' || '--latest' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

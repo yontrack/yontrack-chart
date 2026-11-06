@@ -5,3 +5,4 @@
 # <chart version> <reason>
 6.0.0-beta.2 the bundled Postgres restarts once to apply max_connections (#167)
 6.0.0-beta.6 the Bitnami sub-charts are replaced: the bundled Postgres and RabbitMQ restart once (#183)
+6.0.0 Yontrack 6.0.0 adds a column to TOKENS (yontrack/yontrack#2129): the backends of a 6.0.0 beta fail token requests (401) once per database connection, as their prepared SELECT * no longer matches the table
