@@ -1003,6 +1003,11 @@ kubectl delete pvc <release>-yontrack-chart
 > With a GitOps tool rendering the chart without access to the cluster (ArgoCD), the PVC is no longer rendered
 > and is pruned (or left out of sync) according to the settings of the tool.
 
+> Upgrading from a 6.0.0 beta to 6.0.0 has a short outage for the requests authenticated with a token, even with
+> `ontrack.zeroDowntimeUpgrades: true`. When the new backend adds a column to the tokens table
+> (yontrack/yontrack#2129), each old backend rejects the next token request on each of its database connections with
+> a `401`, for about a second. Retrying the request succeeds.
+
 ## Database connections
 
 Each backend opens up to `ontrack.database.poolSize` connections (30 by default), in one pool, which the background
