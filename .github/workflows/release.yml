@@ -107,10 +107,12 @@ jobs:
 
       - name: GitHub release
         if: ${{ steps.changelog.outcome == 'success' && steps.publish.outcome == 'success' }}
+        # 5.x patches never take the Latest release from 6.x (#125)
         run: |
           gh release create ${{ steps.release.outputs.currentRelease }} \
             --title "${{ steps.release.outputs.currentRelease }}" \
-            --notes-file changelog.md
+            --notes-file changelog.md \
+            --latest=false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
