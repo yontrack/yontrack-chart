@@ -657,3 +657,10 @@ spec:
         - port: {{ .port }}
           protocol: TCP
 {{- end }}
+
+{{/*
+Namespace of the Jobs of the Kubernetes post-processing of auto-versioning
+*/}}
+{{- define "ontrack.autoVersioning.kubernetes.namespace" -}}
+{{- .Values.autoVersioning.kubernetes.namespace | default .Release.Namespace }}
+{{- end }}

@@ -1261,6 +1261,164 @@ if ! cmp -s "$TMP/theme1.tar.gz" "$TMP/theme2.tar.gz"; then
     fail "the theme archive changes between two checkouts of the same files"
 fi
 
+echo "Kubernetes post-processing of auto-versioning (#203)"
+
+AV_K8S=(--set autoVersioning.kubernetes.enabled=true)
+AV_ROLE='select(.kind == "Role" and .metadata.name == "ontrack-yontrack-chart-av-kubernetes")'
+AV_BINDING='select(.kind == "RoleBinding" and .metadata.name == "ontrack-yontrack-chart-av-kubernetes")'
+AV_NETPOL='select(.kind == "NetworkPolicy" and .metadata.name == "ontrack-yontrack-chart-av-kubernetes")'
+# Values rendering, between them, every pod of the chart (Keycloak users and the LDAP exclude each other)
+ALL_PODS=(-f "$USERS" --set auditTrail.minio.enabled=true --set ontrack.zeroDowntimeUpgrades=true)
+LDAP_PODS=(-f "$LDAP" --set auth.keycloak.ldap.testing.enabled=true)
+# Every pod template, as "<kind>/<name> <automountServiceAccountToken>"
+pod_tokens() {
+    # yq e (one document at a time): with ea, the string concatenation would combine all the documents
+    yq e 'select(.spec.template.spec) | .kind + "/" + .metadata.name + " " + (.spec.template.spec.automountServiceAccountToken | tostring)' "$TMP/out.yaml" | grep -v '^---$'
+}
+# Kubernetes post-processing env vars of the backend, as NAME=value
+av_env() {
+    manifests "$ONTRACK_CONTAINER | .env[] | select(.name | test(\"^ONTRACK_EXTENSION_KUBERNETES_\")) | .name + \"=\" + .value"
+}
+
+test_case "By default, no pod mounts a service account token, and no RBAC or NetworkPolicy for the Jobs"
+if render_ok "${LDAP_PODS[@]}"; then
+    assert_equals "test LDAP pod" "$(pod_tokens | grep -- '-ldap ')" "Deployment/ontrack-yontrack-chart-ldap false"
+    assert_equals "pods mounting a token" "$(pod_tokens | grep -v ' false$')" ""
+fi
+if render_ok "${ALL_PODS[@]}"; then
+    assert_equals "pods" "$(pod_tokens | wc -l | tr -d ' ')" "9"
+    assert_equals "pods mounting a token" "$(pod_tokens | grep -v ' false$')" ""
+    assert_equals "env" "$(av_env)" "ONTRACK_EXTENSION_KUBERNETES_ENABLED=false"
+    assert_equals "Role" "$(manifests "$AV_ROLE | .kind")" ""
+    assert_equals "RoleBinding" "$(manifests "$AV_BINDING | .kind")" ""
+    assert_equals "NetworkPolicy" "$(manifests "$AV_NETPOL | .kind")" ""
+fi
+
+test_case "Enabled, only the backend mounts the token of its service account"
+if render_ok "${ALL_PODS[@]}" "${AV_K8S[@]}"; then
+    assert_equals "pods mounting a token" "$(pod_tokens | grep -v ' false$')" "Deployment/ontrack-yontrack-chart true"
+fi
+if render_ok "${LDAP_PODS[@]}" "${AV_K8S[@]}"; then
+    assert_equals "pods mounting a token" "$(pod_tokens | grep -v ' false$')" "Deployment/ontrack-yontrack-chart true"
+fi
+
+test_case "Enabled, a Role with exactly the permissions of the post-processing, bound in the release namespace"
+if render_ok "${AV_K8S[@]}"; then
+    assert_equals "Role namespace" "$(manifests "$AV_ROLE | .metadata.namespace")" "default"
+    assert_json "$(manifests_json "$AV_ROLE | .rules")" '[.[] | {apiGroups, resources, verbs}]' \
+        '[{"apiGroups":["batch"],"resources":["jobs"],"verbs":["create","get","list","delete"]},{"apiGroups":[""],"resources":["pods"],"verbs":["get","list"]},{"apiGroups":[""],"resources":["pods/log"],"verbs":["get"]},{"apiGroups":[""],"resources":["secrets"],"verbs":["create","delete"]}]'
+    assert_equals "RoleBinding namespace" "$(manifests "$AV_BINDING | .metadata.namespace")" "default"
+    assert_json "$(manifests_json "$AV_BINDING")" '[.roleRef.name, .subjects]' \
+        '["ontrack-yontrack-chart-av-kubernetes",[{"kind":"ServiceAccount","name":"ontrack-yontrack-chart","namespace":"default"}]]'
+    assert_equals "env" "$(av_env)" "ONTRACK_EXTENSION_KUBERNETES_ENABLED=true"
+    assert_equals "NetworkPolicy" "$(manifests "$AV_NETPOL | .kind")" ""
+fi
+
+test_case "Enabled with a namespace, the Role and its binding are in it, for the service account of the release namespace"
+if render_ok "${AV_K8S[@]}" --set autoVersioning.kubernetes.namespace=yontrack-av --set serviceAccount.name=yontrack; then
+    assert_equals "Role namespace" "$(manifests "$AV_ROLE | .metadata.namespace")" "yontrack-av"
+    assert_equals "RoleBinding namespace" "$(manifests "$AV_BINDING | .metadata.namespace")" "yontrack-av"
+    assert_json "$(manifests_json "$AV_BINDING")" '.subjects' '[{"kind":"ServiceAccount","name":"yontrack","namespace":"default"}]'
+    assert_equals "namespace env" "$(av_env | grep NAMESPACE)" "ONTRACK_EXTENSION_KUBERNETES_NAMESPACE=yontrack-av"
+fi
+
+test_case "Enabled without RBAC creation, no Role or RoleBinding"
+if render_ok "${AV_K8S[@]}" --set autoVersioning.kubernetes.rbac.create=false; then
+    assert_equals "Role" "$(manifests "$AV_ROLE | .kind")" ""
+    assert_equals "RoleBinding" "$(manifests "$AV_BINDING | .kind")" ""
+fi
+
+test_case "Every property of the post-processing has its env var; lists are comma-joined"
+cat > "$TMP/av-k8s.yaml" <<'EOF'
+autoVersioning:
+  kubernetes:
+    enabled: true
+    namespace: yontrack-av
+    harness:
+      image: alpine/git:v2.50.0
+    git:
+      userName: Bot
+      userEmail: bot@example.com
+    allowed:
+      images: ["busybox:*", "node:22"]
+      secrets: [npm-token, gh-token]
+    job:
+      timeout: 5m
+      maxTimeout: 20m
+      ttl: 2h
+      pollInterval: 10s
+      logTailLines: 200
+      imagePullSecrets: [registry]
+      runAsUser: 2000
+      runAsGroup: 3000
+      fsGroup: 4000
+      resources:
+        requests:
+          cpu: 200m
+          memory: 512Mi
+        limits:
+          cpu: ""
+          memory: 2Gi
+EOF
+if render_ok -f "$TMP/av-k8s.yaml"; then
+    assert_equals "env" "$(av_env | sort | tr '\n' ' ')" "$(printf '%s ' \
+        ONTRACK_EXTENSION_KUBERNETES_ALLOWED_IMAGES=busybox:*,node:22 \
+        ONTRACK_EXTENSION_KUBERNETES_ALLOWED_SECRETS=npm-token,gh-token \
+        ONTRACK_EXTENSION_KUBERNETES_ENABLED=true \
+        ONTRACK_EXTENSION_KUBERNETES_GIT_USEREMAIL=bot@example.com \
+        ONTRACK_EXTENSION_KUBERNETES_GIT_USERNAME=Bot \
+        ONTRACK_EXTENSION_KUBERNETES_HARNESS_IMAGE=alpine/git:v2.50.0 \
+        ONTRACK_EXTENSION_KUBERNETES_JOB_FSGROUP=4000 \
+        ONTRACK_EXTENSION_KUBERNETES_JOB_IMAGEPULLSECRETS=registry \
+        ONTRACK_EXTENSION_KUBERNETES_JOB_LOGTAILLINES=200 \
+        ONTRACK_EXTENSION_KUBERNETES_JOB_MAXTIMEOUT=20m \
+        ONTRACK_EXTENSION_KUBERNETES_JOB_POLLINTERVAL=10s \
+        ONTRACK_EXTENSION_KUBERNETES_JOB_RESOURCES_LIMITS_CPU= \
+        ONTRACK_EXTENSION_KUBERNETES_JOB_RESOURCES_LIMITS_MEMORY=2Gi \
+        ONTRACK_EXTENSION_KUBERNETES_JOB_RESOURCES_REQUESTS_CPU=200m \
+        ONTRACK_EXTENSION_KUBERNETES_JOB_RESOURCES_REQUESTS_MEMORY=512Mi \
+        ONTRACK_EXTENSION_KUBERNETES_JOB_RUNASGROUP=3000 \
+        ONTRACK_EXTENSION_KUBERNETES_JOB_RUNASUSER=2000 \
+        ONTRACK_EXTENSION_KUBERNETES_JOB_TIMEOUT=5m \
+        ONTRACK_EXTENSION_KUBERNETES_JOB_TTL=2h \
+        ONTRACK_EXTENSION_KUBERNETES_NAMESPACE=yontrack-av)"
+fi
+
+test_case "The properties of the post-processing are not rendered when it is disabled"
+if render_ok -f "$TMP/av-k8s.yaml" --set autoVersioning.kubernetes.enabled=false; then
+    assert_equals "env" "$(av_env)" "ONTRACK_EXTENSION_KUBERNETES_ENABLED=false"
+fi
+
+test_case "The NetworkPolicy of the Jobs: no ingress, egress to DNS and TCP 443 & 22, in the Jobs namespace"
+if render_ok "${AV_K8S[@]}" --set autoVersioning.kubernetes.networkPolicy.enabled=true --set autoVersioning.kubernetes.namespace=yontrack-av; then
+    assert_equals "namespace" "$(manifests "$AV_NETPOL | .metadata.namespace")" "yontrack-av"
+    assert_json "$(manifests_json "$AV_NETPOL | .spec")" '[.podSelector, .policyTypes, .ingress]' \
+        '[{"matchLabels":{"app.kubernetes.io/managed-by":"yontrack"}},["Ingress","Egress"],null]'
+    assert_json "$(manifests_json "$AV_NETPOL | .spec")" '.egress' \
+        '[{"ports":[{"port":53,"protocol":"UDP"},{"port":53,"protocol":"TCP"}]},{"ports":[{"port":443,"protocol":"TCP"},{"port":22,"protocol":"TCP"}]}]'
+fi
+
+test_case "The egress rules of the NetworkPolicy of the Jobs can be replaced"
+if render_ok "${AV_K8S[@]}" --set autoVersioning.kubernetes.networkPolicy.enabled=true \
+    --set 'autoVersioning.kubernetes.networkPolicy.egress[0].to[0].ipBlock.cidr=10.0.0.0/8'; then
+    assert_json "$(manifests_json "$AV_NETPOL | .spec")" '.egress' '[{"to":[{"ipBlock":{"cidr":"10.0.0.0/8"}}]}]'
+fi
+
+test_case "No NetworkPolicy for the Jobs when the post-processing is disabled"
+if render_ok --set autoVersioning.kubernetes.networkPolicy.enabled=true; then
+    assert_equals "NetworkPolicy" "$(manifests "$AV_NETPOL | .kind")" ""
+fi
+
+test_case "The notes warn when the post-processing is enabled without allowed images"
+render_notes "${AV_K8S[@]}"
+if ! grep -qF "autoVersioning.kubernetes.allowed.images is empty" "$TMP/notes.txt"; then
+    fail "no warning about the empty allowed images in the notes"
+fi
+render_notes "${AV_K8S[@]}" --set 'autoVersioning.kubernetes.allowed.images[0]=busybox:*'
+if grep -qF "allowed.images is empty" "$TMP/notes.txt"; then
+    fail "warning about the empty allowed images while some are allowed"
+fi
+
 if [ $FAILED -eq 1 ]; then
     echo "Some template tests failed."
     exit 1

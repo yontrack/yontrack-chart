@@ -26,6 +26,7 @@ spec:
         {{- include "ontrack.selectorLabels.minio" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "ontrack.serviceAccountName" . }}
+      automountServiceAccountToken: false
       {{- if not $openshift }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}

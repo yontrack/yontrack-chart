@@ -1,6 +1,6 @@
 # yontrack-chart
 
-![Version: 6.0.0](https://img.shields.io/badge/Version-6.0.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0.0](https://img.shields.io/badge/AppVersion-6.0.0-informational?style=flat-square)
+![Version: 6.1.0](https://img.shields.io/badge/Version-6.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 6.0.3](https://img.shields.io/badge/AppVersion-6.0.3-informational?style=flat-square)
 
 A Helm chart for Kubernetes
 
@@ -218,6 +218,29 @@ A Helm chart for Kubernetes
 | auth.oidc.scope | string | `"openid profile email"` | OIDC scope |
 | auth.oidc.trailingSlash | bool | `false` | Trailing slash for the issuer URL (used for Auth0) |
 | auth.provisioning | bool | `true` | Provisioning of groups & initial administrator |
+| autoVersioning.kubernetes.allowed.images | list | `[]` | Patterns of the images that the post-processing may run, `*` matching any characters (empty: none is allowed) |
+| autoVersioning.kubernetes.allowed.secrets | list | `[]` | Names of the Secrets, in the namespace of the Jobs, that the post-processing may expose to the images (empty: none is allowed) |
+| autoVersioning.kubernetes.enabled | bool | `false` | Enabling the post-processing. It mounts the token of the service account in the Yontrack backend pod. |
+| autoVersioning.kubernetes.git.userEmail | string | `nil` | Email of the author of the commits (Yontrack's default: `no-reply@yontrack.invalid`) |
+| autoVersioning.kubernetes.git.userName | string | `nil` | Name of the author of the commits (Yontrack's default: `Yontrack`) |
+| autoVersioning.kubernetes.harness.image | string | `nil` | Image running the clone & push steps of the Jobs, providing `sh` and `git` and running as a non-root user (Yontrack's default: `alpine/git:v2.49.1`) |
+| autoVersioning.kubernetes.job.fsGroup | int | `nil` | File system group of the Job pods (Yontrack's default: `1000`) |
+| autoVersioning.kubernetes.job.imagePullSecrets | list | `[]` | Names of the Secrets, in the namespace of the Jobs, used to pull the images |
+| autoVersioning.kubernetes.job.logTailLines | int | `nil` | Number of lines of the logs of a Job kept in the auto-versioning audit (Yontrack's default: `100`) |
+| autoVersioning.kubernetes.job.maxTimeout | string | `nil` | Maximum timeout of a Job, kept under 1h because of the lifetime of the GitHub App tokens (Yontrack's default: `30m`) |
+| autoVersioning.kubernetes.job.pollInterval | string | `nil` | Interval between two checks of a Job (Yontrack's default: `5s`) |
+| autoVersioning.kubernetes.job.resources.limits.cpu | string | `nil` | CPU limit (Yontrack's default: `1`) |
+| autoVersioning.kubernetes.job.resources.limits.memory | string | `nil` | Memory limit (Yontrack's default: `1Gi`) |
+| autoVersioning.kubernetes.job.resources.requests.cpu | string | `nil` | CPU request (Yontrack's default: `100m`) |
+| autoVersioning.kubernetes.job.resources.requests.memory | string | `nil` | Memory request (Yontrack's default: `256Mi`) |
+| autoVersioning.kubernetes.job.runAsGroup | int | `nil` | Group of the Job pods (Yontrack's default: `1000`) |
+| autoVersioning.kubernetes.job.runAsUser | int | `nil` | User of the Job pods, never 0 (Yontrack's default: `1000`) |
+| autoVersioning.kubernetes.job.timeout | string | `nil` | Default timeout of a Job (Yontrack's default: `10m`) |
+| autoVersioning.kubernetes.job.ttl | string | `nil` | Time a finished Job is kept (Yontrack's default: `1h`) |
+| autoVersioning.kubernetes.namespace | string | `""` | Namespace of the Jobs and their Secrets, which must exist. Empty for the namespace of the release. A dedicated namespace, holding only the allowed Secrets, is recommended. |
+| autoVersioning.kubernetes.networkPolicy.egress | list | `[]` | Egress rules (`NetworkPolicyEgressRule` list) replacing the default ones (DNS, TCP 443 & 22) |
+| autoVersioning.kubernetes.networkPolicy.enabled | bool | `false` | Rendering a NetworkPolicy for the Job pods, in their namespace: no ingress, and egress limited to DNS and to the TCP ports 443 & 22 |
+| autoVersioning.kubernetes.rbac.create | bool | `true` | Creating a `Role` and a `RoleBinding` in the namespace of the Jobs for the service account of the chart |
 | elasticsearch.existingSecret | string | `""` | Name of an existing secret holding the password to connect to Elasticsearch |
 | elasticsearch.existingSecretPasswordKey | string | `"password"` | Key of the password in the existing secret |
 | elasticsearch.metrics.enabled | bool | `false` | Enabling the export of the metrics to Elasticsearch |

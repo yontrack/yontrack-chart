@@ -26,6 +26,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "ontrack.serviceAccountName" . }}
+      automountServiceAccountToken: false
       {{- if not (and .Values.openshift.enabled (or (eq .Values.global.compatibility.openshift.adaptSecurityContext "force") (eq .Values.global.compatibility.openshift.adaptSecurityContext "auto"))) }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}

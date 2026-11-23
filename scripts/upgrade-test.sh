@@ -38,6 +38,8 @@ else
     CLUSTER="${KIND_CLUSTER:-yt-upgrade}"
 fi
 NS=upgrade-test
+# Namespace of the Jobs of the Kubernetes post-processing of auto-versioning (#203)
+AV_NS=upgrade-test-av
 RELEASE=yt
 BACKEND="$RELEASE-yontrack-chart"
 JOB="$BACKEND-contract-migrations"
@@ -53,6 +55,9 @@ KUBECTL=("${KUBECTL_CLUSTER[@]}" -n "$NS")
 HELM=(helm --kube-context "kind-$CLUSTER" -n "$NS")
 VALUES=(-f "$DIR/values.yaml" --set "ontrack.zeroDowntimeUpgrades=$ZDU")
 [ "$MODE" != ha ] || VALUES+=(-f "$DIR/values-ha.yaml")
+# Values of the chart under test only
+CURRENT_VALUES=(--set autoVersioning.kubernetes.enabled=true --set "autoVersioning.kubernetes.namespace=$AV_NS"
+    --set 'autoVersioning.kubernetes.allowed.images[0]=busybox:*')
 
 CURRENT=$(yq -r .version "$CHART/Chart.yaml")
 APP_VERSION=$(yq -r .appVersion "$CHART/Chart.yaml")
@@ -182,8 +187,9 @@ log "Test image $TEST_IMAGE"
 docker build -q --platform "${IMAGE_PLATFORM:-linux/amd64}" --build-arg "BASE_IMAGE=$BASE_IMAGE" -t "$TEST_IMAGE" "$DIR"
 kind load docker-image "$TEST_IMAGE" --name "$CLUSTER"
 
-"${KUBECTL_CLUSTER[@]}" delete namespace "$NS" --ignore-not-found --wait
+"${KUBECTL_CLUSTER[@]}" delete namespace "$NS" "$AV_NS" --ignore-not-found --wait
 "${KUBECTL_CLUSTER[@]}" create namespace "$NS"
+"${KUBECTL_CLUSTER[@]}" create namespace "$AV_NS"
 
 log "Installing the chart $PREVIOUS"
 "${HELM[@]}" install "$RELEASE" oci://registry-1.docker.io/yontrack/yontrack-chart --version "$PREVIOUS" \
@@ -225,7 +231,7 @@ fi
 
 log "Upgrading to the chart of this checkout ($CURRENT)"
 UPGRADE=0
-"${HELM[@]}" upgrade "$RELEASE" "$CHART" "${VALUES[@]}" --set image.repository=$TEST_REPOSITORY \
+"${HELM[@]}" upgrade "$RELEASE" "$CHART" "${VALUES[@]}" "${CURRENT_VALUES[@]}" --set image.repository=$TEST_REPOSITORY \
     --wait --timeout 20m || UPGRADE=$?
 [ $UPGRADE -eq 0 ] || fail "helm upgrade exited with $UPGRADE"
 
@@ -357,6 +363,24 @@ else
     grep -F "Contract migration applied: V9002" <<< "$(pod_logs "$BACKEND_PODS")" \
         || fail "the backend did not apply the contract migration at startup"
 fi
+
+log "Kubernetes post-processing of auto-versioning"
+# The backend alone mounts the token of the service account, which may run the Jobs in $AV_NS, and nothing more
+SA="system:serviceaccount:$NS:$BACKEND"
+can_i() {
+    "${KUBECTL_CLUSTER[@]}" auth can-i "$1" "$2" -n "$3" --as "$SA" 2> /dev/null || true
+}
+for permission in "create jobs.batch" "get jobs.batch" "list jobs.batch" "delete jobs.batch" \
+    "get pods" "list pods" "get pods/log" "create secrets" "delete secrets"; do
+    read -r verb resource <<< "$permission"
+    [ "$(can_i "$verb" "$resource" "$AV_NS")" = yes ] || fail "the backend cannot $permission in $AV_NS"
+done
+[ "$(can_i get secrets "$AV_NS")" = no ] || fail "the backend can read the Secrets of $AV_NS"
+[ "$(can_i create jobs.batch "$NS")" = no ] || fail "the backend can create Jobs in $NS"
+[ "$("${KUBECTL[@]}" get "deployment/$BACKEND" -o jsonpath='{.spec.template.spec.automountServiceAccountToken}')" = true ] \
+    || fail "the backend does not mount the token of its service account"
+[ "$("${KUBECTL[@]}" get "deployment/$BACKEND-ui" -o jsonpath='{.spec.template.spec.automountServiceAccountToken}')" = false ] \
+    || fail "the UI mounts the token of the service account"
 
 log "RabbitMQ"
 # The load never goes through RabbitMQ: the backends must have declared their queues again, and consume them

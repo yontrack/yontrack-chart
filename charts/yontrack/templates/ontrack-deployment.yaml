@@ -40,6 +40,8 @@ spec:
         {{- include "ontrack.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "ontrack.serviceAccountName" . }}
+      # Token only needed by the Kubernetes post-processing of auto-versioning, which calls the Kubernetes API
+      automountServiceAccountToken: {{ .Values.autoVersioning.kubernetes.enabled | default false }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       {{- if $zdu }}
