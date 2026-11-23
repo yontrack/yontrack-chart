@@ -30,6 +30,7 @@ spec:
     spec:
       restartPolicy: Never
       serviceAccountName: {{ include "ontrack.serviceAccountName" . }}
+      automountServiceAccountToken: false
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:

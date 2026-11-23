@@ -32,6 +32,7 @@ This Helm chart is compatible with Helm 3 and allows the installation of Yontrac
   * [External S3-compatible storage](#external-s3-compatible-storage)
   * [Bundled MinIO-compatible storage](#bundled-minio-compatible-storage)
 * [Audit trail instance key](#audit-trail-instance-key)
+* [Kubernetes post-processing of auto-versioning](#kubernetes-post-processing-of-auto-versioning)
 * [Configuration as code (CasC)](#configuration-as-code-casc)
   * [Secrets mappings](#secrets-mappings)
     * [Using environment variables](#using-environment-variables)
@@ -53,6 +54,7 @@ This Helm chart is compatible with Helm 3 and allows the installation of Yontrac
 * [High availability](#high-availability)
 * [Upgrading to 6.x](#upgrading-to-6x)
 * [Change log](#change-log)
+  * [6.1](#61)
   * [6.0](#60)
   * [1.0](#10)
   * [0.13](#013)
@@ -757,6 +759,26 @@ The key store volume mounts the whole secret, so the key appears in
 `ontrack.config.secret_key_store.directory`. Yontrack looks for a missing key every minute: no
 restart is needed.
 
+# Kubernetes post-processing of auto-versioning
+
+Since Yontrack 6.0.3, the post-processing of auto-versioning can run as a Kubernetes Job in the cluster of Yontrack
+(`postProcessing: kubernetes`). It is off by default:
+
+```yaml
+autoVersioning:
+  kubernetes:
+    enabled: true
+    # Dedicated namespace of the Jobs, which must exist
+    namespace: yontrack-av
+    allowed:
+      # Images the post-processing may run (none by default)
+      images:
+        - "eclipse-temurin:21"
+```
+
+The chart then mounts the token of the service account in the backend pod, and grants it the permissions of the
+post-processing in the namespace of the Jobs. See [Kubernetes post-processing of auto-versioning](docs/auto-versioning-kubernetes.md).
+
 # Configuration as code (CasC)
 
 Casc is enabled by default in Yontrack starting from version 5.
@@ -1291,6 +1313,7 @@ replacements:
 
 | Version        | Postgres | Elasticsearch | Rabbit MQ | Kubernetes | Minimal Yontrack version |
 |----------------|----------|---------------|-----------|------------|-------------------------|
+| [6.1.x](#61)   | 17       | optional (metrics only) | 4 | 1.24  | 6.0 (6.0.3 for the Kubernetes post-processing) |
 | [6.0.x](#60)   | 17       | optional (metrics only) | 4 | 1.24  | 6.0                     |
 | [5.0.x](#10)   | 17       | 9             | 4         | 1.24       | 5.0.0                   |
 | [0.13.x](#013) | 15       | 7             | 3         | 1.24       | 4.12.3                  |
@@ -1299,6 +1322,11 @@ replacements:
 | [0.10.x](#010) | 15       | 7             | 3         | 1.24       | 4.8.1                   |
 | 0.9.x          | 15       | 7             | 3         | 1.24       | 4.7.20                  |
 | 0.8.x          | 11       | 7             | 3         | 1.24       | 4.7.13                  |
+
+## 6.1
+
+* [Kubernetes post-processing of auto-versioning](#kubernetes-post-processing-of-auto-versioning) (`autoVersioning.kubernetes`), with its `Role`, `RoleBinding` and an optional NetworkPolicy for its Jobs
+* No pod mounts the token of the service account any longer (`automountServiceAccountToken: false`), but the backend when the Kubernetes post-processing is enabled. All the pods roll once on the upgrade to 6.1.
 
 ## 6.0
 
@@ -1425,6 +1453,11 @@ more expand and one more contract migration (`scripts/upgrade-test/`):
   each kind started after these 10 s must succeed; once Quartz has recovered the lost instance, the `jobs` GraphQL
   query shows no job running on it. A previous chart without `ontrack.replicas` runs one backend: the upgrade then
   goes from one to two.
+
+In every mode, the chart under test enables the [Kubernetes post-processing of auto-versioning](#kubernetes-post-processing-of-auto-versioning)
+with the `upgrade-test-av` namespace for its Jobs: `kubectl auth can-i` checks that the service account has its
+permissions there and no others (no reading of the Secrets, no Jobs in the namespace of the release), and that the
+backend alone mounts its token.
 
 On `main`, the tests run from `.github/workflows/release.yml`, once it has registered the Yontrack build of the
 commit, and each mode is recorded on that build as the `upgrade-rolling`, `upgrade-default` and `upgrade-ha`

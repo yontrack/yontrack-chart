@@ -293,6 +293,54 @@ Environment of the Yontrack backend container, shared by the Deployment and the 
 - name: ONTRACK_CONFIG_LICENSE_KEY
   value: {{ .Values.ontrack.config.license.key | quote }}
 ########################################
+# Kubernetes post-processing of auto-versioning
+########################################
+{{- $k8s := .Values.autoVersioning.kubernetes }}
+- name: ONTRACK_EXTENSION_KUBERNETES_ENABLED
+  value: {{ $k8s.enabled | default false | quote }}
+{{- if $k8s.enabled }}
+{{- with $k8s.namespace }}
+- name: ONTRACK_EXTENSION_KUBERNETES_NAMESPACE
+  value: {{ . | quote }}
+{{- end }}
+{{- /* Values left to null are not rendered, so that the defaults of Yontrack apply */}}
+{{- $job := $k8s.job }}
+{{- $scalars := list
+    (list "HARNESS_IMAGE" $k8s.harness.image)
+    (list "GIT_USERNAME" $k8s.git.userName)
+    (list "GIT_USEREMAIL" $k8s.git.userEmail)
+    (list "JOB_TIMEOUT" $job.timeout)
+    (list "JOB_MAXTIMEOUT" $job.maxTimeout)
+    (list "JOB_TTL" $job.ttl)
+    (list "JOB_POLLINTERVAL" $job.pollInterval)
+    (list "JOB_LOGTAILLINES" $job.logTailLines)
+    (list "JOB_RUNASUSER" $job.runAsUser)
+    (list "JOB_RUNASGROUP" $job.runAsGroup)
+    (list "JOB_FSGROUP" $job.fsGroup)
+    (list "JOB_RESOURCES_REQUESTS_CPU" $job.resources.requests.cpu)
+    (list "JOB_RESOURCES_REQUESTS_MEMORY" $job.resources.requests.memory)
+    (list "JOB_RESOURCES_LIMITS_CPU" $job.resources.limits.cpu)
+    (list "JOB_RESOURCES_LIMITS_MEMORY" $job.resources.limits.memory)
+}}
+{{- range $scalars }}
+{{- if not (kindIs "invalid" (index . 1)) }}
+- name: ONTRACK_EXTENSION_KUBERNETES_{{ index . 0 }}
+  value: {{ index . 1 | toString | quote }}
+{{- end }}
+{{- end }}
+{{- $lists := list
+    (list "ALLOWED_IMAGES" $k8s.allowed.images)
+    (list "ALLOWED_SECRETS" $k8s.allowed.secrets)
+    (list "JOB_IMAGEPULLSECRETS" $job.imagePullSecrets)
+}}
+{{- range $lists }}
+{{- if index . 1 }}
+- name: ONTRACK_EXTENSION_KUBERNETES_{{ index . 0 }}
+  value: {{ join "," (index . 1) | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+########################################
 # Arbitrary environment variables
 ########################################
 {{- with .Values.ontrack.env }}

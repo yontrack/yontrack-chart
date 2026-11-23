@@ -1043,6 +1043,70 @@ auditTrail:
     # -- Resources of the MinIO container
     resources: {}
 
+# Auto-versioning (Yontrack 6.0.3+)
+autoVersioning:
+  # Post-processing of auto-versioning running the user's image as a Kubernetes Job (`postProcessing: kubernetes`).
+  # See docs/auto-versioning-kubernetes.md. Values left to `null` are not rendered: the default of Yontrack applies.
+  kubernetes:
+    # -- Enabling the post-processing. It mounts the token of the service account in the Yontrack backend pod.
+    enabled: false
+    # -- Namespace of the Jobs and their Secrets, which must exist. Empty for the namespace of the release.
+    # A dedicated namespace, holding only the allowed Secrets, is recommended.
+    namespace: ""
+    rbac:
+      # -- Creating a `Role` and a `RoleBinding` in the namespace of the Jobs for the service account of the chart
+      create: true
+    harness:
+      # -- (string) Image running the clone & push steps of the Jobs, providing `sh` and `git` and running as a non-root user (Yontrack's default: `alpine/git:v2.49.1`)
+      image: null
+    git:
+      # -- (string) Name of the author of the commits (Yontrack's default: `Yontrack`)
+      userName: null
+      # -- (string) Email of the author of the commits (Yontrack's default: `no-reply@yontrack.invalid`)
+      userEmail: null
+    allowed:
+      # -- Patterns of the images that the post-processing may run, `*` matching any characters (empty: none is allowed)
+      images: []
+      # -- Names of the Secrets, in the namespace of the Jobs, that the post-processing may expose to the images (empty: none is allowed)
+      secrets: []
+    job:
+      # -- (string) Default timeout of a Job (Yontrack's default: `10m`)
+      timeout: null
+      # -- (string) Maximum timeout of a Job, kept under 1h because of the lifetime of the GitHub App tokens (Yontrack's default: `30m`)
+      maxTimeout: null
+      # -- (string) Time a finished Job is kept (Yontrack's default: `1h`)
+      ttl: null
+      # -- (string) Interval between two checks of a Job (Yontrack's default: `5s`)
+      pollInterval: null
+      # -- (int) Number of lines of the logs of a Job kept in the auto-versioning audit (Yontrack's default: `100`)
+      logTailLines: null
+      # -- Names of the Secrets, in the namespace of the Jobs, used to pull the images
+      imagePullSecrets: []
+      # -- (int) User of the Job pods, never 0 (Yontrack's default: `1000`)
+      runAsUser: null
+      # -- (int) Group of the Job pods (Yontrack's default: `1000`)
+      runAsGroup: null
+      # -- (int) File system group of the Job pods (Yontrack's default: `1000`)
+      fsGroup: null
+      # Resources of the step running the user's image. An empty string sets none.
+      resources:
+        requests:
+          # -- (string) CPU request (Yontrack's default: `100m`)
+          cpu: null
+          # -- (string) Memory request (Yontrack's default: `256Mi`)
+          memory: null
+        limits:
+          # -- (string) CPU limit (Yontrack's default: `1`)
+          cpu: null
+          # -- (string) Memory limit (Yontrack's default: `1Gi`)
+          memory: null
+    networkPolicy:
+      # -- Rendering a NetworkPolicy for the Job pods, in their namespace: no ingress, and egress limited to DNS
+      # and to the TCP ports 443 & 22
+      enabled: false
+      # -- Egress rules (`NetworkPolicyEgressRule` list) replacing the default ones (DNS, TCP 443 & 22)
+      egress: []
+
 # -- In case you want to specify different resources for emptyDir than {}
 emptyDir: { }
   # Example of resouces that might be used:

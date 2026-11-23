@@ -1,0 +1,35 @@
+{{- $k8s := .Values.autoVersioning.kubernetes }}
+{{- if and $k8s.enabled $k8s.networkPolicy.enabled }}
+# Isolation of the Job pods of the Kubernetes post-processing of auto-versioning:
+# nothing connects to them, and they only reach the DNS and the TCP ports 443 & 22 (SCM, registries),
+# not the databases or Yontrack.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ontrack.fullname" . }}-av-kubernetes
+  namespace: {{ include "ontrack.autoVersioning.kubernetes.namespace" . }}
+  labels:
+    {{- include "ontrack.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: yontrack
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    {{- if $k8s.networkPolicy.egress }}
+    {{- toYaml $k8s.networkPolicy.egress | nindent 4 }}
+    {{- else }}
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - ports:
+        - port: 443
+          protocol: TCP
+        - port: 22
+          protocol: TCP
+    {{- end }}
+{{- end }}

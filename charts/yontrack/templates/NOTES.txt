@@ -30,3 +30,9 @@
    Until then, users who sign out land on the provider's error page.
    Set auth.oidc.federatedSignOut=false to sign users out of Yontrack only.
 {{- end }}
+{{- if and .Values.autoVersioning.kubernetes.enabled (not .Values.autoVersioning.kubernetes.allowed.images) }}
+
+WARNING: the Kubernetes post-processing of auto-versioning is enabled (autoVersioning.kubernetes.enabled),
+   but autoVersioning.kubernetes.allowed.images is empty: Yontrack rejects every image, and every
+   post-processing fails. List the images it may run in autoVersioning.kubernetes.allowed.images.
+{{- end }}
